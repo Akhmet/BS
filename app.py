@@ -375,37 +375,139 @@ with tab_preview:
 
 with tab_params:
     st.subheader("Параметры анализа")
-    st.warning("👈 Загрузите файл данных, чтобы настроить параметры анализа")
     
-    # Место для параметров
-    placeholder_params = st.empty()
-    
-    with placeholder_params.container():
-        st.info("""
-        ### Группы параметров:
+    # Проверяем, есть ли загруженные данные
+    if 'data_valid' in st.session_state and st.session_state['data_valid']:
+        df = st.session_state['data']
         
-        1. **Основные настройки**
-           - Выбор колонок с данными (HC, годы)
-           - Пороговые значения отсечения
-           
-        2. **Параметры методов**
-           - Включение/выключение методов анализа
-           - Настройки алгоритмов
-           
-        3. **Оптимизация**
-           - Выбор алгоритма оптимизации
-           - Количество итераций
-           - Размер популяции
-           
-        4. **Фильтрация выбросов**
-           - Методы фильтрации (Z-score, IQR)
-           - Пороговые значения
-           
-        5. **Визуализация**
-           - Настройки цветов
-           - Размеры точек
-           - Подписи осей
-        """)
+        st.success("✅ Данные загружены. Настройте параметры анализа ниже.")
+        
+        st.divider()
+        
+        # =========================================================================
+        # Параметры анализа будут добавлены здесь
+        # =========================================================================
+        st.subheader("🔧 Основные настройки")
+        
+        # Выбор колонок для анализа
+        hc_columns = st.session_state.get('hc_columns', [])
+        if hc_columns:
+            selected_hc = st.multiselect(
+                label="Выберите колонки с данными углеводородов",
+                options=hc_columns,
+                default=hc_columns[:5] if len(hc_columns) >= 5 else hc_columns,
+                help="Выберите колонки, которые будут использоваться в анализе"
+            )
+            st.session_state['selected_hc_columns'] = selected_hc
+        
+        st.divider()
+        
+        # Параметры фильтрации выбросов
+        st.subheader("🎯 Фильтрация выбросов")
+        
+        outlier_method = st.selectbox(
+            label="Метод фильтрации выбросов",
+            options=['Нет', 'Z-score', 'IQR'],
+            index=0,
+            key='outlier_method',
+            help="Выберите метод для обнаружения и фильтрации выбросов"
+        )
+        
+        if outlier_method == 'Z-score':
+            z_threshold = st.slider(
+                label="Порог Z-score",
+                min_value=1.0,
+                max_value=5.0,
+                value=3.0,
+                step=0.1,
+                key='z_threshold',
+                help="Значения с Z-score больше этого порога будут считаться выбросами"
+            )
+        elif outlier_method == 'IQR':
+            iqr_multiplier = st.slider(
+                label="Множитель IQR",
+                min_value=1.0,
+                max_value=3.0,
+                value=1.5,
+                step=0.1,
+                key='iqr_multiplier',
+                help="Значения за пределами Q1 - k*IQR и Q3 + k*IQR будут считаться выбросами"
+            )
+        
+        st.divider()
+        
+        # Параметры визуализации
+        st.subheader("📊 Визуализация")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            color_scheme = st.selectbox(
+                label="Цветовая схема",
+                options=['Plotly', 'Viridis', 'Plasma', 'Inferno', 'Magma', 'Set1', 'Set2'],
+                index=0,
+                key='color_scheme',
+                help="Выберите цветовую палитру для графиков"
+            )
+        with col2:
+            point_size = st.slider(
+                label="Размер точек",
+                min_value=2,
+                max_value=20,
+                value=8,
+                step=1,
+                key='point_size',
+                help="Размер точек на графиках"
+            )
+        
+        show_labels = st.checkbox(
+            label="Показывать подписи на графиках",
+            value=True,
+            key='show_labels',
+            help="Отображать подписи осей и легенду"
+        )
+        
+        st.divider()
+        
+        # Кнопка запуска анализа
+        st.subheader("🚀 Запуск анализа")
+        
+        if st.button("▶️ Запустить анализ", type="primary", use_container_width=True):
+            st.session_state['analysis_run'] = True
+            st.success("✅ Анализ запущен! Перейдите на вкладку 'Результаты'")
+            st.rerun()
+        
+    else:
+        st.warning("👈 Загрузите файл данных, чтобы настроить параметры анализа")
+        
+        # Место для параметров
+        placeholder_params = st.empty()
+        
+        with placeholder_params.container():
+            st.info("""
+            ### Группы параметров:
+            
+            1. **Основные настройки**
+               - Выбор колонок с данными (HC, годы)
+               - Пороговые значения отсечения
+               
+            2. **Параметры методов**
+               - Включение/выключение методов анализа
+               - Настройки алгоритмов
+               
+            3. **Оптимизация**
+               - Выбор алгоритма оптимизации
+               - Количество итераций
+               - Размер популяции
+               
+            4. **Фильтрация выбросов**
+               - Методы фильтрации (Z-score, IQR)
+               - Пороговые значения
+               
+            5. **Визуализация**
+               - Настройки цветов
+               - Размеры точек
+               - Подписи осей
+            """)
 
 with tab_results:
     st.subheader("Результаты анализа")
