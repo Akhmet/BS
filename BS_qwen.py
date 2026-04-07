@@ -24,7 +24,7 @@
 # =============================================================================
 
 # ---------------------- ПУТИ И ФАЙЛЫ ----------------------
-INPUT_FILEPATH = r'd:\Work\2026\test\test.xlsx'
+INPUT_FILEPATH = r'C:\Work\BS\test_synthetic1.xlsx'
 OUTPUT_FILENAME = 'hydrocarbon_stability_analysis_v4.xlsx'
 OPTIMAL_HC_FILENAME = 'optimal_hydrocarbon_set.xlsx'
 
