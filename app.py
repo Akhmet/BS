@@ -149,9 +149,141 @@ with st.sidebar:
     
     st.divider()
     
-    # Место для кнопок сохранения/загрузки конфигов
+    # =========================================================================
+    # 5. СИСТЕМА СОХРАНЕНИЯ И ЗАГРУЗКИ КОНФИГУРАЦИЙ (Этап 5)
+    # =========================================================================
     st.header("💾 Конфигурации")
-    st.info("Сохранение и загрузка настроек будет доступно после настройки параметров")
+    
+    # Создаем папку для конфигов если не существует
+    import os
+    from pathlib import Path
+    configs_dir = Path("saved_configs")
+    configs_dir.mkdir(exist_ok=True)
+    
+    # --- 5.2. Функционал сохранения ---
+    st.subheader("Сохранить конфигурацию")
+    
+    config_name = st.text_input(
+        label="Название конфигурации",
+        key="config_name_input",
+        placeholder="my_config",
+        help="Введите имя для сохранения текущих настроек"
+    )
+    
+    def save_config():
+        """Сохраняет текущие параметры из session_state в JSON файл"""
+        import json
+        
+        if not config_name:
+            st.error("❌ Введите название конфигурации")
+            return False
+        
+        # Собираем все параметры из session_state
+        config_data = {}
+        
+        # Параметры основных настроек
+        for key in [
+            'outlier_method', 'z_threshold', 'iqr_multiplier',
+            'optimization_algorithm', 'n_iterations', 'population_size',
+            'color_scheme', 'point_size', 'show_labels',
+            'selected_years', 'selected_classes',
+            'threshold_value', 'enable_pca', 'enable_tsne'
+        ]:
+            if key in st.session_state:
+                config_data[key] = st.session_state[key]
+        
+        # Сохраняем в JSON файл
+        config_file = configs_dir / f"{config_name}.json"
+        try:
+            with open(config_file, 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, indent=2, ensure_ascii=False)
+            st.success(f"✅ Конфигурация '{config_name}' сохранена!")
+            return True
+        except Exception as e:
+            st.error(f"❌ Ошибка сохранения: {str(e)}")
+            return False
+    
+    if st.button("💾 Сохранить конфигурацию", key="save_config_btn"):
+        save_config()
+    
+    st.divider()
+    
+    # --- 5.3. Функционал загрузки ---
+    st.subheader("Загрузить конфигурацию")
+    
+    def get_available_configs():
+        """Возвращает список доступных конфигураций"""
+        if not configs_dir.exists():
+            return []
+        config_files = list(configs_dir.glob("*.json"))
+        return [f.stem for f in config_files]
+    
+    available_configs = get_available_configs()
+    
+    if available_configs:
+        selected_config = st.selectbox(
+            label="Доступные конфигурации",
+            options=available_configs,
+            key="selected_config_select",
+            help="Выберите конфигурацию для загрузки"
+        )
+        
+        def load_selected_config():
+            """Загружает выбранную конфигурацию и обновляет session_state"""
+            import json
+            
+            config_file = configs_dir / f"{selected_config}.json"
+            try:
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    config_data = json.load(f)
+                
+                # Обновляем session_state значениями из конфига
+                for key, value in config_data.items():
+                    st.session_state[key] = value
+                
+                st.success(f"✅ Конфигурация '{selected_config}' загружена!")
+                return True
+            except Exception as e:
+                st.error(f"❌ Ошибка загрузки: {str(e)}")
+                return False
+        
+        if st.button("📂 Загрузить конфигурацию", key="load_config_btn"):
+            load_selected_config()
+    else:
+        st.info("Нет сохраненных конфигураций")
+    
+    st.divider()
+    
+    # --- 5.4. Сброс настроек ---
+    st.subheader("Сброс настроек")
+    
+    def reset_all_settings():
+        """Сбрасывает все настройки к значениям по умолчанию"""
+        keys_to_reset = [
+            'outlier_method', 'z_threshold', 'iqr_multiplier',
+            'optimization_algorithm', 'n_iterations', 'population_size',
+            'color_scheme', 'point_size', 'show_labels',
+            'selected_years', 'selected_classes',
+            'threshold_value', 'enable_pca', 'enable_tsne'
+        ]
+        
+        # Удаляем ключи из session_state
+        for key in keys_to_reset:
+            if key in st.session_state:
+                del st.session_state[key]
+        
+        st.success("✅ Настройки сброшены! Страница будет перезагружена...")
+        # Перезагрузка страницы через JavaScript
+        st.rerun()
+    
+    if st.button("🔄 Сбросить все настройки", key="reset_btn"):
+        reset_all_settings()
+    
+    st.divider()
+    
+    # Место для кнопок сохранения/загрузки конфигов
+    st.header("ℹ️ Информация")
+    st.info("Параметры анализа будут доступны после загрузки данных")
 
 # --- MAIN AREA: Вкладки для разделения этапов работы ---
 # Создаем вкладки для логического разделения интерфейса
@@ -305,5 +437,5 @@ with status_container:
 st.markdown("---")
 st.caption("""
 Приложение для анализа стабильности углеводородов | 
-Версия: 0.2.0 (Этап 3: Загрузка и предпросмотр данных)
+Версия: 0.5.0 (Этап 5: Система сохранения и загрузки конфигураций)
 """)
