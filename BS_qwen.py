@@ -2938,3 +2938,270 @@ def main():
 
 if __name__ == "__main__":
     results, optimized_hc, history = main()
+
+
+# =============================================================================
+# 21. ФУНКЦИЯ ДЛЯ STREAMlit (ИНТЕГРАЦИЯ)
+# =============================================================================
+
+def run_analysis(df, params=None):
+    """
+    Основная функция анализа для использования в Streamlit-приложении.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Исходные данные с колонками: 'number probe', 'Class', 'year' и углеводороды
+    params : dict, optional
+        Словарь параметров анализа. Если None, используются значения по умолчанию.
+        Возможные ключи:
+        - methods_config: dict конфигурации методов (METHODS_CONFIG)
+        - optimization_algorithm: str ('greedy', 'genetic', 'hybrid')
+        - min_hc: int минимальное количество УВ
+        - max_hc: int максимальное количество УВ
+        - max_iterations: int максимальное итераций
+        - consensus_threshold_min: float минимальный порог consensus
+        - consensus_threshold_max: float максимальный порог consensus
+        - ga_pop_size: int размер популяции GA
+        - ga_generations: int поколений GA
+        - ga_mutation_rate: float вероятность мутации
+        - greedy_max_iterations: int итераций жадного алгоритма
+        - bootstrap_iterations: int итераций bootstrap
+        - exclude_sample_outliers: bool исключать пробы-выбросы
+        - sample_outlier_method: str метод обнаружения выбросов проб
+        - hc_outlier_method: str метод обнаружения выбросов УВ
+        - hc_outlier_threshold: float порог для выбросов УВ
+    
+    Returns
+    -------
+    dict
+        Словарь с результатами анализа:
+        - results: dict с результатами по каждому методу
+        - optimized_hc: list оптимизированных углеводородов
+        - optimization_history: list история оптимизации
+        - consensus_df: DataFrame консенсусного рейтинга
+        - year_1: int первый год
+        - year_2: int второй год
+        - hc_columns: list все углеводороды
+        - proportions_year_1, proportions_year_2: пропорции
+        - clr_year_1, clr_year_2: CLR-трансформированные данные
+    """
+    
+    # Параметры по умолчанию
+    default_params = {
+        'methods_config': METHODS_CONFIG.copy(),
+        'optimization_algorithm': OPTIMIZATION_ALGORITHM,
+        'min_hc': MIN_HC,
+        'max_hc': MAX_HC,
+        'max_iterations': MAX_ITERATIONS,
+        'consensus_threshold_min': CONSENSUS_THRESHOLD_MIN,
+        'consensus_threshold_max': CONSENSUS_THRESHOLD_MAX,
+        'consensus_threshold_step': CONSENSUS_THRESHOLD_STEP,
+        'ga_pop_size': GA_POP_SIZE,
+        'ga_generations': GA_GENERATIONS,
+        'ga_mutation_rate': GA_MUTATION_RATE,
+        'ga_crossover_probability': GA_CROSSOVER_PROBABILITY,
+        'ga_early_stop_patience': GA_EARLY_STOP_PATIENCE,
+        'ga_early_stop_tolerance': GA_EARLY_STOP_TOLERANCE,
+        'greedy_max_iterations': GREEDY_MAX_ITERATIONS,
+        'greedy_n_remove_options': GREEDY_N_REMOVE_OPTIONS,
+        'greedy_hybrid_iterations': GREEDY_HYBRID_ITERATIONS,
+        'bootstrap_iterations': BOOTSTRAP_ITERATIONS,
+        'exclude_sample_outliers': EXCLUDE_SAMPLE_OUTLIERS,
+        'sample_outlier_method': SAMPLE_OUTLIER_METHOD,
+        'sample_outlier_threshold': SAMPLE_OUTLIER_THRESHOLD,
+        'hc_outlier_method': HC_OUTLIER_METHOD,
+        'hc_outlier_threshold': HC_OUTLIER_THRESHOLD,
+        'cv_folds': CV_FOLDS,
+        'cv_enabled': CV_ENABLED,
+        'stability_high_threshold': STABILITY_HIGH_THRESHOLD,
+        'stability_medium_threshold': STABILITY_MEDIUM_THRESHOLD,
+        'clr_weight_median': CLR_WEIGHT_MEDIAN,
+        'clr_weight_ks': CLR_WEIGHT_KS,
+        'clr_weight_overlap': CLR_WEIGHT_OVERLAP,
+        'clr_weight_effect_size': CLR_WEIGHT_EFFECT_SIZE,
+        'quality_weight_centroid': QUALITY_WEIGHT_CENTROID,
+        'quality_weight_variance': QUALITY_WEIGHT_VARIANCE,
+        'quality_weight_density': QUALITY_WEIGHT_DENSITY,
+    }
+    
+    # Обновляем параметры переданными значениями
+    if params:
+        default_params.update(params)
+    
+    p = default_params
+    
+    # Глобальные переменные для годов
+    global year_1, year_2
+    
+    # Получение уникальных годов
+    year_1, year_2 = get_unique_years(df)
+    
+    # Получение списка углеводородов
+    hc_columns = get_hydrocarbon_columns(df)
+    
+    # Разделение данных по годам
+    data_year_1, data_year_2 = prepare_data_by_year(df, hc_columns, year_1, year_2)
+    
+    # Подготовка композиционных данных
+    proportions_year_1, proportions_year_2, clr_year_1, clr_year_2, log_proportions_year_1, log_proportions_year_2 = \
+        prepare_compositional_data(data_year_1, data_year_2, hc_columns)
+    
+    all_results = {}
+    results_for_consensus = {}
+    
+    # Обнаружение выбросов
+    sample_outliers_year_1, scores_year_1, threshold_year_1 = detect_sample_outliers(
+        clr_year_1, method=p['sample_outlier_method'])
+    sample_outliers_year_2, scores_year_2, threshold_year_2 = detect_sample_outliers(
+        clr_year_2, method=p['sample_outlier_method'])
+    
+    hc_outliers_year_1, hc_outlier_summary_year_1 = detect_hydrocarbon_outliers(
+        clr_year_1, method=p['hc_outlier_method'], threshold=p['hc_outlier_threshold'])
+    hc_outliers_year_2, hc_outlier_summary_year_2 = detect_hydrocarbon_outliers(
+        clr_year_2, method=p['hc_outlier_method'], threshold=p['hc_outlier_threshold'])
+    
+    # Исключение выбросов если указано
+    if p['exclude_sample_outliers']:
+        clr_year_1_clean = clr_year_1[~sample_outliers_year_1].reset_index(drop=True)
+        clr_year_2_clean = clr_year_2[~sample_outliers_year_2].reset_index(drop=True)
+        proportions_year_1_clean = proportions_year_1[~sample_outliers_year_1].reset_index(drop=True)
+        proportions_year_2_clean = proportions_year_2[~sample_outliers_year_2].reset_index(drop=True)
+        log_proportions_year_1_clean = log_proportions_year_1[~sample_outliers_year_1].reset_index(drop=True)
+        log_proportions_year_2_clean = log_proportions_year_2[~sample_outliers_year_2].reset_index(drop=True)
+        
+        clr_year_1, clr_year_2 = clr_year_1_clean, clr_year_2_clean
+        proportions_year_1, proportions_year_2 = proportions_year_1_clean, proportions_year_2_clean
+        log_proportions_year_1, log_proportions_year_2 = log_proportions_year_1_clean, log_proportions_year_2_clean
+    
+    # Выполнение включённых методов анализа
+    corr_year_1, corr_year_2 = None, None
+    
+    for method_name, enabled in p['methods_config'].items():
+        if not enabled:
+            continue
+        
+        if method_name == 'cohens_d':
+            clr_df_temp = calculate_clr_stability(clr_year_1, clr_year_2, hc_columns)
+            cohens_d_results = clr_df_temp[['hydrocarbon', 'cohens_d']].copy()
+            cohens_d_results['effect_size_class'] = cohens_d_results['cohens_d'].apply(interpret_cohens_d)
+            cohens_d_results['cohens_d_stability'] = 1 / (1 + np.abs(cohens_d_results['cohens_d']))
+            cohens_d_results = cohens_d_results.sort_values('cohens_d_stability', ascending=False)
+            all_results['cohens_d_df'] = cohens_d_results
+            results_for_consensus['cohens_d'] = cohens_d_results[['hydrocarbon', 'cohens_d_stability']].rename(
+                columns={'cohens_d_stability': 'score'})
+        
+        elif method_name == 'pattern':
+            pattern_df, corr_year_1, corr_year_2 = correlation_pattern_stability(
+                proportions_year_1, proportions_year_2, hc_columns)
+            all_results['pattern_df'] = pattern_df
+            results_for_consensus['pattern'] = pattern_df[['hydrocarbon', 'pattern_stability_score']].rename(
+                columns={'pattern_stability_score': 'score'})
+        
+        elif method_name == 'importance':
+            importance_df, rf_model = year_prediction_importance(
+                log_proportions_year_1, log_proportions_year_2, hc_columns)
+            all_results['importance_df'] = importance_df
+            results_for_consensus['importance'] = importance_df[['hydrocarbon', 'stability_from_importance']].rename(
+                columns={'stability_from_importance': 'score'})
+        
+        elif method_name == 'bootstrap':
+            bootstrap_df = bootstrap_stability_ci(
+                log_proportions_year_1, log_proportions_year_2, hc_columns,
+                n_iterations=p['bootstrap_iterations'])
+            all_results['bootstrap_df'] = bootstrap_df
+            results_for_consensus['bootstrap'] = bootstrap_df[['hydrocarbon', 'ci_reliability']].rename(
+                columns={'ci_reliability': 'score'})
+        
+        elif method_name == 'pca':
+            loadings_df, loadings_corr, pca_1, pca_2 = pca_loadings_stability(
+                clr_year_1, clr_year_2, hc_columns)
+            all_results['loadings_df'] = loadings_df
+            results_for_consensus['pca'] = loadings_df[['hydrocarbon', 'loadings_stability']].rename(
+                columns={'loadings_stability': 'score'})
+        
+        elif method_name == 'clr':
+            clr_df = calculate_clr_stability(clr_year_1, clr_year_2, hc_columns)
+            all_results['clr_df'] = clr_df
+            results_for_consensus['clr'] = clr_df[['hydrocarbon', 'clr_stability_score']].rename(
+                columns={'clr_stability_score': 'score'})
+        
+        elif method_name == 'ratio':
+            ratio_df = calculate_ratio_stability_metrics(proportions_year_1, proportions_year_2, hc_columns)
+            all_results['ratio_df'] = ratio_df
+            results_for_consensus['ratio'] = ratio_df[['hydrocarbon', 'ratio_stability_score']].rename(
+                columns={'ratio_stability_score': 'score'})
+        
+        elif method_name == 'wasserstein':
+            wasserstein_df = calculate_wasserstein_stability(clr_year_1, clr_year_2, hc_columns)
+            all_results['wasserstein_df'] = wasserstein_df
+            results_for_consensus['wasserstein'] = wasserstein_df[['hydrocarbon', 'wasserstein_stability_score']].rename(
+                columns={'wasserstein_stability_score': 'score'})
+        
+        elif method_name == 'pairwise':
+            pairwise_df = calculate_pairwise_logratio_stability(proportions_year_1, proportions_year_2, hc_columns)
+            all_results['pairwise_df'] = pairwise_df
+            results_for_consensus['pairwise'] = pairwise_df[['hydrocarbon', 'pairwise_lr_mean_stability']].rename(
+                columns={'pairwise_lr_mean_stability': 'score'})
+    
+    # Консенсусный рейтинг
+    enabled_methods_list = [k for k, v in p['methods_config'].items() if v]
+    consensus_df = None
+    
+    if len(results_for_consensus) >= MIN_METHODS_FOR_CONSENSUS:
+        consensus_df = consensus_ranking(results_for_consensus, enabled_methods_list, hc_columns,
+                                         use_variance_weighting=True)
+        all_results['consensus_df'] = consensus_df
+    
+    # Оптимизация набора УВ
+    optimized_hc = hc_columns
+    optimization_history = []
+    
+    if consensus_df is not None:
+        # Временная установка глобальных параметров для совместимости
+        global CONSENSUS_THRESHOLD_MIN, CONSENSUS_THRESHOLD_MAX, CONSENSUS_THRESHOLD_STEP
+        old_min, old_max, old_step = CONSENSUS_THRESHOLD_MIN, CONSENSUS_THRESHOLD_MAX, CONSENSUS_THRESHOLD_STEP
+        CONSENSUS_THRESHOLD_MIN = p['consensus_threshold_min']
+        CONSENSUS_THRESHOLD_MAX = p['consensus_threshold_max']
+        CONSENSUS_THRESHOLD_STEP = p['consensus_threshold_step']
+        
+        # Оптимизация порога
+        threshold_result = optimize_consensus_threshold(
+            proportions_year_1, proportions_year_2, hc_columns, consensus_df,
+            min_hc=p['min_hc'], max_hc=p['max_hc'])
+        
+        if threshold_result and threshold_result['best_score'] > -np.inf:
+            candidate_hc = threshold_result['best_hc']
+        else:
+            candidate_hc = consensus_df[consensus_df['consensus_score'] >= p['consensus_threshold_min']][
+                'hydrocarbon'].tolist()
+        
+        # Запуск оптимизации
+        optimized_hc, optimization_history = optimize_hydrocarbon_set(
+            proportions_year_1, proportions_year_2, candidate_hc, consensus_df,
+            min_hc=p['min_hc'], max_iterations=p['max_iterations'],
+            algorithm=p['optimization_algorithm'],
+            pop_size=p['ga_pop_size'],
+            mutation_rate=p['ga_mutation_rate'],
+            max_hc=p['max_hc']
+        )
+        
+        # Восстановление глобальных параметров
+        CONSENSUS_THRESHOLD_MIN, CONSENSUS_THRESHOLD_MAX, CONSENSUS_THRESHOLD_STEP = old_min, old_max, old_step
+    
+    return {
+        'results': all_results,
+        'optimized_hc': optimized_hc,
+        'optimization_history': optimization_history,
+        'consensus_df': consensus_df,
+        'year_1': year_1,
+        'year_2': year_2,
+        'hc_columns': hc_columns,
+        'proportions_year_1': proportions_year_1,
+        'proportions_year_2': proportions_year_2,
+        'clr_year_1': clr_year_1,
+        'clr_year_2': clr_year_2,
+        'data_year_1': data_year_1,
+        'data_year_2': data_year_2,
+        'df': df
+    }
