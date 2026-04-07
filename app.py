@@ -775,10 +775,224 @@ with status_container:
     st.info("ℹ️ Статус: Ожидание загрузки данных...")
 
 # =============================================================================
+# ЭТАП 8: ЭКСПОРТ И СОХРАНЕНИЕ РЕЗУЛЬТАТОВ
+# =============================================================================
+if 'data_valid' in st.session_state and st.session_state['data_valid']:
+    st.divider()
+    st.header("📥 Экспорт результатов")
+    
+    # =========================================================================
+    # 8.1. Скачивание отчетов (Excel)
+    # =========================================================================
+    st.subheader("Скачать результаты (Excel)")
+    
+    def create_excel_report():
+        """
+        Создает Excel-файл с результатами анализа на лету.
+        Возвращает BytesIO объект с Excel файлом.
+        """
+        import io
+        
+        df = st.session_state['data']
+        
+        # Создаем буфер в памяти
+        output = io.BytesIO()
+        
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Лист 1: Исходные данные
+            df.to_excel(writer, sheet_name='Исходные данные', index=False)
+            
+            # Лист 2: Итоговая таблица расчетов (базовая статистика)
+            numeric_cols = df.select_dtypes(include=[np.number]).columns
+            if len(numeric_cols) > 0:
+                stats_df = df[numeric_cols].describe()
+                stats_df.to_excel(writer, sheet_name='Статистика расчетов')
+            
+            # Лист 3: Параметры запуска (из конфига/session_state)
+            params_data = {
+                'Параметр': [],
+                'Значение': []
+            }
+            
+            # Собираем параметры из session_state
+            param_mapping = {
+                'outlier_method': 'Метод фильтрации выбросов',
+                'z_threshold': 'Z-score порог',
+                'iqr_multiplier': 'IQR множитель',
+                'optimization_algorithm': 'Алгоритм оптимизации',
+                'n_iterations': 'Количество итераций',
+                'population_size': 'Размер популяции',
+                'color_scheme': 'Цветовая схема',
+                'point_size': 'Размер точек',
+                'show_labels': 'Показывать подписи',
+                'threshold_value': 'Пороговое значение',
+                'enable_pca': 'Включить PCA',
+                'enable_tsne': 'Включить t-SNE'
+            }
+            
+            for key, label in param_mapping.items():
+                value = st.session_state.get(key, 'Не задано')
+                params_data['Параметр'].append(label)
+                params_data['Значение'].append(str(value))
+            
+            params_df = pd.DataFrame(params_data)
+            params_df.to_excel(writer, sheet_name='Параметры запуска', index=False)
+            
+            # Лист 4: Информация о данных
+            info_data = {
+                'Метрика': ['Количество строк', 'Количество колонок', 'Годы', 'Классы', 'HC колонки'],
+                'Значение': [
+                    str(st.session_state.get('n_rows', 'N/A')),
+                    str(st.session_state.get('n_columns', 'N/A')),
+                    str(st.session_state.get('years', 'N/A')),
+                    str(st.session_state.get('classes', 'N/A')),
+                    str(len(st.session_state.get('hc_columns', [])))
+                ]
+            }
+            info_df = pd.DataFrame(info_data)
+            info_df.to_excel(writer, sheet_name='Информация о данных', index=False)
+        
+        output.seek(0)
+        return output
+    
+    excel_file = create_excel_report()
+    
+    st.download_button(
+        label="📊 Скачать результаты (Excel)",
+        data=excel_file,
+        file_name=f"analysis_results_{st.session_state.get('file_name', 'data').split('.')[0]}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        help="Скачать Excel-файл с исходными данными, статистикой, параметрами и информацией"
+    )
+    
+    st.divider()
+    
+    # =========================================================================
+    # 8.2. Скачивание графиков
+    # =========================================================================
+    st.subheader("Скачать графики")
+    
+    st.markdown("""
+    **Примечание:** Каждый интерактивный график выше имеет встроенную кнопку 
+    сохранения (иконка камеры 📷 в правом верхнем углу графика). 
+    Нажмите на неё, чтобы скачать график в PNG формате.
+    """)
+    
+    # Опционально: кнопка "Скачать все графики (ZIP)"
+    def create_plots_zip():
+        """
+        Создает ZIP-архив со всеми графиками в PNG формате.
+        Возвращает BytesIO объект с ZIP архивом.
+        """
+        import io
+        import zipfile
+        import base64
+        
+        df = st.session_state['data']
+        years = sorted(df['year'].unique())
+        
+        # Создаем буфер для ZIP
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Генерируем и сохраняем основные графики
+            
+            # График 1: Распределение данных по годам
+            fig1 = make_subplots(
+                rows=1, cols=2,
+                subplot_titles=('Распределение по годам', 'Распределение по классам'),
+                specs=[[{'type': 'bar'}, {'type': 'pie'}]]
+            )
+            
+            # Бар-чарт по годам
+            year_counts = df['year'].value_counts().sort_index()
+            fig1.add_trace(
+                go.Bar(x=year_counts.index.astype(str), y=year_counts.values, name='По годам'),
+                row=1, col=1
+            )
+            
+            # Pie-чарт по классам
+            class_counts = df['Class'].value_counts()
+            fig1.add_trace(
+                go.Pie(labels=class_counts.index.astype(str), values=class_counts.values, name='По классам'),
+                row=1, col=2
+            )
+            
+            fig1.update_layout(height=400, showlegend=False, title_text="Обзор данных")
+            
+            # Сохраняем как PNG (через kaleido если установлен, иначе как HTML)
+            try:
+                img_bytes1 = fig1.to_image(format="png", width=800, height=400)
+                zip_file.writestr('01_overview.png', img_bytes1)
+            except Exception:
+                # Если kaleido не установлен, сохраняем как HTML
+                html1 = fig1.to_html(full_html=False, include_plotlyjs='cdn')
+                zip_file.writestr('01_overview.html', html1)
+            
+            # График 2: Тепловая карта корреляций (если есть числовые данные)
+            numeric_cols = df.select_dtypes(include=[np.number]).columns
+            hc_cols = [col for col in numeric_cols if col not in REQUIRED_COLUMNS]
+            
+            if len(hc_cols) >= 2:
+                corr_matrix = df[hc_cols].corr()
+                
+                fig2 = go.Figure(data=go.Heatmap(
+                    z=corr_matrix.values,
+                    x=corr_matrix.columns,
+                    y=corr_matrix.columns,
+                    colorscale='RdBu_r',
+                    zmid=0
+                ))
+                fig2.update_layout(title='Корреляционная матрица углеводородов', height=600)
+                
+                try:
+                    img_bytes2 = fig2.to_image(format="png", width=800, height=600)
+                    zip_file.writestr('02_correlation_heatmap.png', img_bytes2)
+                except Exception:
+                    html2 = fig2.to_html(full_html=False, include_plotlyjs='cdn')
+                    zip_file.writestr('02_correlation_heatmap.html', html2)
+            
+            # График 3: Сравнение по годам (box plot)
+            if len(years) >= 2 and len(hc_cols) > 0:
+                sample_col = hc_cols[0]  # Берем первую HC колонку для примера
+                
+                fig3 = px.box(df, x='year', y=sample_col, color='year',
+                             title=f'Распределение {sample_col} по годам',
+                             labels={'year': 'Год', sample_col: sample_col})
+                fig3.update_layout(height=400)
+                
+                try:
+                    img_bytes3 = fig3.to_image(format="png", width=800, height=400)
+                    zip_file.writestr('03_year_comparison_boxplot.png', img_bytes3)
+                except Exception:
+                    html3 = fig3.to_html(full_html=False, include_plotlyjs='cdn')
+                    zip_file.writestr('03_year_comparison_boxplot.html', html3)
+        
+        zip_buffer.seek(0)
+        return zip_buffer
+    
+    try:
+        zip_file = create_plots_zip()
+        
+        st.download_button(
+            label="📦 Скачать все графики (ZIP)",
+            data=zip_file,
+            file_name=f"plots_archive_{st.session_state.get('file_name', 'data').split('.')[0]}.zip",
+            mime="application/zip",
+            help="Скачать ZIP-архив со всеми основными графиками в PNG формате"
+        )
+        
+        st.info("💡 **Совет:** Для экспорта в PNG требуется библиотека `kaleido`. Установите её командой: `pip install kaleido`")
+        
+    except Exception as e:
+        st.warning(f"⚠️ Не удалось создать ZIP-архив: {str(e)}")
+        st.info("Вы можете скачать каждый график индивидуально через кнопку камеры в интерфейсе графика.")
+
+# =============================================================================
 # Нижняя информация
 # =============================================================================
 st.markdown("---")
 st.caption("""
 Приложение для анализа стабильности углеводородов | 
-Версия: 0.7.0 (Этап 7: Визуализация результатов)
+Версия: 0.8.0 (Этап 8: Экспорт и сохранение результатов)
 """)
