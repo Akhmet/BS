@@ -660,7 +660,7 @@ if __name__ == '__main__':
     
     # Загрузка данных
     # ЗАМЕНИТЕ 'your_data.xlsx' НА ПУТЬ К ВАШЕМУ ФАЙЛУ
-    comparator.load_data('your_data.xlsx', sample_col='номер пробы', year_col='год')
+    comparator.load_data('test_synthetic.xlsx', sample_col='номер пробы', year_col='год')
     
     # Подготовка данных
     comparator.prepare_data()
