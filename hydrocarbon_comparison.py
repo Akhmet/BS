@@ -129,8 +129,8 @@ class HydrocarbonComparator:
             if method == 'mahalanobis':
                 # Расстояние Махаланобиса
                 try:
-                    mean = data.mean().values
-                    cov = data.cov().values
+                    mean = data.mean().values.copy()
+                    cov = data.cov().values.copy()
                     
                     # Регуляризация ковариационной матрицы
                     cov += np.eye(len(cov)) * 1e-6
@@ -146,8 +146,8 @@ class HydrocarbonComparator:
                     # Порог: среднее + 3*std
                     threshold = np.mean(distances) + 3 * np.std(distances)
                     outliers_idx = [i for i, d in enumerate(distances) if d > threshold]
-                    outlier_results[year] = list(self.sample_ids_2009 if year == '2009' 
-                                                  else self.sample_ids_2010)[outliers_idx]
+                    sample_ids = self.sample_ids_2009 if year == '2009' else self.sample_ids_2010
+                    outlier_results[year] = [sample_ids[i] for i in outliers_idx]
                     
                 except Exception as e:
                     print(f"Ошибка при расчете расстояния Махаланобиса для {year}: {e}")
@@ -157,9 +157,9 @@ class HydrocarbonComparator:
                 iso_forest = IsolationForest(contamination=contamination, random_state=42)
                 predictions = iso_forest.fit_predict(data)
                 outliers_idx = np.where(predictions == -1)[0]
-                outlier_results[year] = list(self.sample_ids_2009 if year == '2009' 
-                                              else self.sample_ids_2010)[outliers_idx]
-                                              
+                sample_ids = self.sample_ids_2009 if year == '2009' else self.sample_ids_2010
+                outlier_results[year] = [sample_ids[i] for i in outliers_idx]
+                                        
             elif method == 'iqr':
                 Q1 = data.quantile(0.25)
                 Q3 = data.quantile(0.75)
@@ -171,8 +171,8 @@ class HydrocarbonComparator:
                 
                 outlier_mask = ((data < lower_bound) | (data > upper_bound)).any(axis=1)
                 outliers_idx = np.where(outlier_mask)[0]
-                outlier_results[year] = list(self.sample_ids_2009 if year == '2009' 
-                                              else self.sample_ids_2010)[outliers_idx]
+                sample_ids = self.sample_ids_2009 if year == '2009' else self.sample_ids_2010
+                outlier_results[year] = [sample_ids[i] for i in outliers_idx]
         
         self.outlier_samples = outlier_results
         
@@ -367,6 +367,11 @@ class HydrocarbonComparator:
                 print(f"Добавлен {comp}: общая схожесть = {best_overall_sim:.3f}, "
                       f"кол-во компонентов = {len(selected)}")
             else:
+                # Если еще ничего не добавлено, пробуем добавить компонент anyway
+                if len(selected) == 0:
+                    selected.append(comp)
+                    best_overall_sim = metrics['overall_similarity']
+                    print(f"Добавлен первый компонент {comp}: схожесть = {best_overall_sim:.3f}")
                 # Пробуем добавить следующий по списку
                 continue
         
@@ -410,6 +415,11 @@ class HydrocarbonComparator:
         
         # 1. Heatmap медианных профилей
         fig, ax = plt.subplots(figsize=(12, 6))
+        
+        if len(compounds) == 0:
+            print("Нет отобранных компонентов для визуализации")
+            return
+        
         median_df = pd.DataFrame({
             '2009': data_09.median(),
             '2010': data_10.median()
@@ -474,7 +484,8 @@ class HydrocarbonComparator:
         
         # 4. PCA biplot
         combined_data = pd.concat([data_09, data_10], ignore_index=True)
-        labels = ['2009'] * len(data_09) + ['2010'] * len(data_10)
+        labels = [0] * len(data_09) + [1] * len(data_10)
+        label_names = ['2009', '2010']
         
         n_pca = min(3, len(compounds), len(combined_data) - 1)
         if n_pca >= 2:
@@ -488,18 +499,16 @@ class HydrocarbonComparator:
                                c=labels, cmap='Set1', s=100, alpha=0.7,
                                edgecolors='black', linewidth=1)
             
-            # Центроиды
-            centroid_09 = pca_result[:len(data_09)].mean(axis=0)
-            centroid_10 = pca_result[len(data_09):].mean(axis=0)
-            ax.plot([centroid_09[0], centroid_10[0]], 
-                   [centroid_09[1], centroid_10[1]], 
-                   'k--', linewidth=2, marker='o', markersize=12,
-                   label=f'Центроиды (расст={np.linalg.norm(centroid_09-centroid_10):.3f})')
+            # Легенда с правильными метками
+            legend_elements = [plt.Line2D([0], [0], marker='o', color='w', 
+                                          markerfacecolor=color, markersize=10,
+                                          label=name, linestyle='None') 
+                              for color, name in zip(['#1f77b4', '#ff7f0e'], label_names)]
+            ax.legend(handles=legend_elements, title='Год')
             
             ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)', fontsize=12)
             ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)', fontsize=12)
             ax.set_title('PCA: Проекция проб на первые две компоненты', fontsize=14)
-            ax.legend()
             plt.tight_layout()
             plt.savefig(f'{save_dir}/pca_biplot.png', dpi=300)
             plt.close()
@@ -650,22 +659,23 @@ if __name__ == '__main__':
     comparator = HydrocarbonComparator(similarity_threshold=0.85)
     
     # Загрузка данных
-    # comparator.load_data('your_data.xlsx', sample_col='номер пробы', year_col='год')
+    # ЗАМЕНИТЕ 'your_data.xlsx' НА ПУТЬ К ВАШЕМУ ФАЙЛУ
+    comparator.load_data('your_data.xlsx', sample_col='номер пробы', year_col='год')
     
     # Подготовка данных
-    # comparator.prepare_data()
+    comparator.prepare_data()
     
     # Поиск выбросов
-    # comparator.detect_sample_outliers(method='mahalanobis')
-    # comparator.detect_compound_outliers(method='iqr')
+    comparator.detect_sample_outliers(method='mahalanobis')
+    comparator.detect_compound_outliers(method='iqr')
     
     # Подбор оптимального списка
-    # selected = comparator.select_optimal_compounds(exclude_outliers=True)
+    selected = comparator.select_optimal_compounds(exclude_outliers=True)
     
     # Визуализация
-    # comparator.visualize_results(save_dir='./results')
+    comparator.visualize_results(save_dir='./results')
     
     # Сохранение результатов
-    # comparator.save_results('results.xlsx')
+    comparator.save_results('results.xlsx')
     
-    print("Скрипт готов к работе. Раскомментируйте шаги выше после загрузки данных.")
+    print("\n=== Все шаги выполнены успешно ===")
