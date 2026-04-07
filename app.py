@@ -654,8 +654,17 @@ with tab_results:
                     comparison_df = df[['year'] + top_hc].copy()
                     comparison_df['year'] = comparison_df['year'].astype(str)
                     
+                    # Преобразуем в длинный формат для px.box
+                    comparison_df_melted = comparison_df.melt(
+                        id_vars=['year'],
+                        var_name='variable',
+                        value_name='value'
+                    )
+                    
                     fig_comparison = px.box(
-                        comparison_df,
+                        comparison_df_melted,
+                        x='variable',
+                        y='value',
                         points="all",
                         title='Сравнение распределений топ-10 углеводородов',
                         labels={'variable': 'Углеводород', 'value': 'Концентрация'}
