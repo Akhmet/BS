@@ -533,6 +533,10 @@ with tab_results:
                     'Class': df['Class']
                 })
                 
+                # Добавляем PC3 только если он существует
+                if pca_result.shape[1] >= 3:
+                    pca_df['PC3'] = pca_result[:, 2]
+                
                 if len(years) > 1:
                     pca_df['year'] = pca_df['year'].astype(str)
                 
@@ -553,7 +557,7 @@ with tab_results:
                 st.plotly_chart(fig_pca_2d, use_container_width=True)
                 
                 # 3D PCA если возможно
-                if pca.n_components_ >= 3:
+                if 'PC3' in pca_df.columns:
                     st.subheader("PCA: 3D визуализация")
                     
                     fig_pca_3d = px.scatter_3d(
