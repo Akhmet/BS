@@ -50,18 +50,26 @@ OPTIMIZATION_ALGORITHM = 'hybrid'  # 'greedy', 'genetic', 'hybrid'
 MIN_HC = 11  # Минимальное количество УВ после оптимизации
 MAX_HC = 35  # Максимальное количество УВ
 MAX_ITERATIONS = 60  # Для greedy: макс итерации, для genetic: поколения
-CONSENSUS_THRESHOLD = 0.4  # Порог consensus score для кандидатов на оптимизацию
+CONSENSUS_THRESHOLD_MIN = 0.3  # Минимальный порог consensus score
+CONSENSUS_THRESHOLD_MAX = 0.7  # Максимальный порог consensus score
+CONSENSUS_THRESHOLD_STEP = 0.1  # Шаг перебора порога
 
 # ---------------------- ПАРАМЕТРЫ ГЕНЕТИЧЕСКОГО АЛГОРИТМА ----------------------
 GA_POP_SIZE = 60
 GA_GENERATIONS = 40
 GA_MUTATION_RATE = 0.15
 GA_CROSSOVER_PROBABILITY = 0.7
+GA_EARLY_STOP_PATIENCE = 10  # Поколений без улучшения для ранней остановки
+GA_EARLY_STOP_TOLERANCE = 0.001  # Минимальное улучшение для считания прогрессом
 
 # ---------------------- ПАРАМЕТРЫ ЖАДНОГО АЛГОРИТМА ----------------------
 GREEDY_MAX_ITERATIONS = 20  # Максимум итераций жадного алгоритма
 GREEDY_N_REMOVE_OPTIONS = [1, 2, 3]  # Сколько УВ пробовать удалять за шаг
 GREEDY_HYBRID_ITERATIONS = 15  # Итераций жадного в гибридном режиме
+
+# ---------------------- КРОСС-ВАЛИДАЦИЯ ----------------------
+CV_FOLDS = 5  # Количество фолдов для кросс-валидации
+CV_ENABLED = True  # Включить кросс-валидацию
 
 # ---------------------- НАСТРОЙКИ ВЫБРОСОВ ----------------------
 EXCLUDE_SAMPLE_OUTLIERS = False  # Исключать ли пробы-выбросы из анализа
@@ -91,9 +99,9 @@ RATIO_WEIGHT_OVERLAP = 0.25
 RATIO_WEIGHT_EFFECT_SIZE = 0.25
 
 # ---------------------- ВЕСА МЕТРИК (Quality Score для оптимизации) ----------------------
-QUALITY_WEIGHT_CENTROID = 0.9
-QUALITY_WEIGHT_VARIANCE = 0.00
-QUALITY_WEIGHT_DENSITY = 0.1
+QUALITY_WEIGHT_CENTROID = 0.5
+QUALITY_WEIGHT_VARIANCE = 0.3
+QUALITY_WEIGHT_DENSITY = 0.2
 
 # ---------------------- НАСТРОЙКИ ВИЗУАЛИЗАЦИИ ----------------------
 FIG_DPI = 300
@@ -131,6 +139,7 @@ from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
 from sklearn.ensemble import RandomForestClassifier, IsolationForest
 from sklearn.decomposition import PCA
 from sklearn.utils import resample
+from sklearn.model_selection import KFold
 import warnings
 import os
 import time
@@ -1135,6 +1144,215 @@ def evaluate_hydrocarbon_set(proportions_year_1, proportions_year_2, hc_subset, 
     }
 
 
+def cross_validate_optimization(proportions_year_1, proportions_year_2, hc_columns, consensus_df,
+                                 n_folds=CV_FOLDS, min_hc=MIN_HC, max_hc=MAX_HC):
+    """
+    Кросс-валидация оптимизации: разделение проб на фолды для оценки устойчивости результатов.
+    Возвращает среднее качество и стандартное отклонение по фолдам.
+    """
+    if not CV_ENABLED or n_folds < 2:
+        return None
+    
+    n_samples = len(proportions_year_1)
+    if n_samples < n_folds * 2:
+        print(f"⚠️  Недостаточно проб ({n_samples}) для кросс-валидации с {n_folds} фолдами")
+        return None
+    
+    # Создаем индексы для фолдов
+    indices = np.arange(n_samples)
+    fold_size = n_samples // n_folds
+    
+    fold_scores = []
+    fold_metrics_list = []
+    
+    print(f"\nКросс-валидация: {n_folds} фолдов, {n_samples} проб")
+    
+    for fold in range(n_folds):
+        # Разделение на train/test
+        test_start = fold * fold_size
+        test_end = test_start + fold_size if fold < n_folds - 1 else n_samples
+        
+        test_indices = indices[test_start:test_end]
+        train_indices = np.concatenate([indices[:test_start], indices[test_end:]])
+        
+        # Получаем данные для фолда
+        train_prop_1 = proportions_year_1[train_indices]
+        train_prop_2 = proportions_year_2[train_indices]
+        test_prop_1 = proportions_year_1[test_indices]
+        test_prop_2 = proportions_year_2[test_indices]
+        
+        # Оптимизация на train данных
+        best_hc = None
+        best_score = -np.inf
+        
+        # Быстрая оптимизация: жадный алгоритм с ограниченным числом итераций
+        current_hc = hc_columns.copy()
+        for i in range(min(10, GREEDY_MAX_ITERATIONS)):
+            if len(current_hc) <= min_hc:
+                break
+            
+            consensus_sorted = consensus_df.set_index('hydrocarbon').loc[current_hc]
+            consensus_sorted = consensus_sorted.sort_values('consensus_score', ascending=True)
+            
+            candidates = consensus_sorted.head(1).index.tolist()
+            test_set = [hc for hc in current_hc if hc not in candidates]
+            
+            if len(test_set) >= min_hc:
+                metrics = evaluate_hydrocarbon_set(train_prop_1, train_prop_2, test_set, consensus_df)
+                if metrics['quality_score'] > best_score:
+                    best_score = metrics['quality_score']
+                    best_hc = test_set
+                    current_hc = test_set
+                else:
+                    break
+            else:
+                break
+        
+        if best_hc is None:
+            best_hc = hc_columns[:min_hc] if len(hc_columns) >= min_hc else hc_columns
+        
+        # Оценка на test данных
+        test_metrics = evaluate_hydrocarbon_set(test_prop_1, test_prop_2, best_hc, consensus_df)
+        fold_scores.append(test_metrics['quality_score'])
+        fold_metrics_list.append(test_metrics)
+        
+        print(f"  Фолд {fold + 1}/{n_folds}: score={test_metrics['quality_score']:.4f}, n_HC={len(best_hc)}")
+    
+    mean_score = np.mean(fold_scores)
+    std_score = np.std(fold_scores)
+    
+    print(f"\nРезультат кросс-валидации: {mean_score:.4f} ± {std_score:.4f}")
+    
+    return {
+        'mean_score': mean_score,
+        'std_score': std_score,
+        'fold_scores': fold_scores,
+        'fold_metrics': fold_metrics_list
+    }
+
+
+def sensitivity_analysis(proportions_year_1, proportions_year_2, optimal_hc, consensus_df):
+    """
+    Анализ чувствительности: оценка влияния каждого УВ на качество набора.
+    Возвращает рейтинг важности каждого углеводорода.
+    """
+    print("\nАнализ чувствительности...")
+    
+    if len(optimal_hc) < 3:
+        print("  Недостаточно УВ для анализа чувствительности (нужно минимум 3)")
+        return None
+    
+    # Базовая оценка
+    base_metrics = evaluate_hydrocarbon_set(proportions_year_1, proportions_year_2, optimal_hc, consensus_df)
+    base_score = base_metrics['quality_score']
+    
+    importance_scores = {}
+    
+    for hc in optimal_hc:
+        # Удаляем один УВ и оцениваем изменение качества
+        test_hc = [x for x in optimal_hc if x != hc]
+        
+        if len(test_hc) < 2:
+            importance_scores[hc] = {'importance': 0, 'score_change': 0}
+            continue
+        
+        test_metrics = evaluate_hydrocarbon_set(proportions_year_1, proportions_year_2, test_hc, consensus_df)
+        score_change = base_score - test_metrics['quality_score']
+        
+        # Положительное значение = УВ важен (его удаление ухудшает результат)
+        importance_scores[hc] = {
+            'importance': score_change,
+            'score_change': score_change,
+            'base_score': base_score,
+            'score_without': test_metrics['quality_score']
+        }
+    
+    # Сортировка по важности
+    sorted_importance = sorted(importance_scores.items(), key=lambda x: x[1]['importance'], reverse=True)
+    
+    print(f"  Базовый score: {base_score:.4f}")
+    print(f"  Топ-5 важных УВ:")
+    for i, (hc, data) in enumerate(sorted_importance[:5]):
+        print(f"    {i+1}. {hc}: importance={data['importance']:.4f}")
+    
+    return {
+        'base_score': base_score,
+        'importance_scores': importance_scores,
+        'sorted_importance': sorted_importance
+    }
+
+
+def optimize_consensus_threshold(proportions_year_1, proportions_year_2, hc_columns, consensus_df,
+                                  min_hc=MIN_HC, max_hc=MAX_HC):
+    """
+    Оптимизация порога consensus threshold: перебор порогов для поиска лучшего.
+    """
+    print("\nОптимизация порога consensus threshold...")
+    
+    thresholds = np.arange(CONSENSUS_THRESHOLD_MIN, CONSENSUS_THRESHOLD_MAX + CONSENSUS_THRESHOLD_STEP, 
+                          CONSENSUS_THRESHOLD_STEP)
+    
+    best_threshold = CONSENSUS_THRESHOLD_MIN
+    best_score = -np.inf
+    best_hc = None
+    results = []
+    
+    for threshold in thresholds:
+        # Фильтрация кандидатов по текущему порогу
+        candidate_hc = consensus_df[consensus_df['consensus_score'] >= threshold]['hydrocarbon'].tolist()
+        
+        if len(candidate_hc) < min_hc:
+            print(f"  Порог {threshold:.2f}: недостаточно кандидатов ({len(candidate_hc)} < {min_hc}), пропускаем")
+            continue
+        
+        # Быстрая оптимизация
+        current_hc = candidate_hc.copy()
+        score = -np.inf
+        
+        for i in range(min(8, GREEDY_MAX_ITERATIONS)):
+            if len(current_hc) <= min_hc:
+                break
+            
+            consensus_sorted = consensus_df.set_index('hydrocarbon').loc[current_hc]
+            consensus_sorted = consensus_sorted.sort_values('consensus_score', ascending=True)
+            
+            candidates = consensus_sorted.head(1).index.tolist()
+            test_set = [hc for hc in current_hc if hc not in candidates]
+            
+            if len(test_set) >= min_hc:
+                metrics = evaluate_hydrocarbon_set(proportions_year_1, proportions_year_2, test_set, consensus_df)
+                if metrics['quality_score'] > score:
+                    score = metrics['quality_score']
+                    current_hc = test_set
+                else:
+                    break
+            else:
+                break
+        
+        if score > best_score:
+            best_score = score
+            best_threshold = threshold
+            best_hc = current_hc
+        
+        results.append({
+            'threshold': threshold,
+            'n_candidates': len(candidate_hc),
+            'n_final': len(current_hc),
+            'score': score
+        })
+        
+        print(f"  Порог {threshold:.2f}: кандидатов={len(candidate_hc)}, финал={len(current_hc)}, score={score:.4f}")
+    
+    print(f"\nЛучший порог: {best_threshold:.2f} со score={best_score:.4f}")
+    
+    return {
+        'best_threshold': best_threshold,
+        'best_score': best_score,
+        'best_hc': best_hc,
+        'all_results': results
+    }
+
+
 # =============================================================================
 # 16. АЛГОРИТМЫ ОПТИМИЗАЦИИ (ВСЕ ИСПОЛЬЗУЮТ ЕДИНУЮ ПРЕДОБРАБОТКУ)
 # =============================================================================
@@ -1296,6 +1514,10 @@ def optimize_genetic(proportions_year_1, proportions_year_2, hc_columns, consens
     best_score = -np.inf
     best_metrics = None
     history = []
+    
+    # Early stopping variables
+    no_improvement_count = 0
+    prev_best_score = -np.inf
 
     for gen in range(generations):
         # Оценка фитнеса - ВСЕ используют ЕДИНУЮ предобработку через evaluate_
@@ -1318,6 +1540,20 @@ def optimize_genetic(proportions_year_1, proportions_year_2, hc_columns, consens
             best_score = scores[max_idx]
             best_solution = population[max_idx].copy()
             best_metrics = metrics_list[max_idx]
+            no_improvement_count = 0  # Сброс счетчика при улучшении
+        else:
+            # Проверка на сходимость (early stopping)
+            if abs(scores[max_idx] - prev_best_score) < GA_EARLY_STOP_TOLERANCE:
+                no_improvement_count += 1
+            else:
+                no_improvement_count = 0
+        
+        prev_best_score = best_score
+        
+        # Early stopping check
+        if no_improvement_count >= GA_EARLY_STOP_PATIENCE:
+            print(f"\nРанняя остановка на поколении {gen}: нет улучшений {GA_EARLY_STOP_PATIENCE} поколений")
+            break
 
         # История (каждые 5 поколений)
         if gen % 5 == 0 or gen == generations - 1:
@@ -1340,15 +1576,25 @@ def optimize_genetic(proportions_year_1, proportions_year_2, hc_columns, consens
             parent = population[i1] if scores[i1] > scores[i2] else population[i2]
             new_population.append(parent.copy())
 
-        # Кроссовер (одноточечный)
+        # Кроссовер (одноточечный с сохранением порядка)
         for i in range(0, pop_size, 2):
             if i + 1 < pop_size and np.random.random() > (1 - GA_CROSSOVER_PROBABILITY):
                 p1, p2 = new_population[i], new_population[i + 1]
 
                 if len(p1) > 1 and len(p2) > 1:
                     crossover_point = np.random.randint(1, min(len(p1), len(p2)))
-                    child1 = list(set(p1[:crossover_point] + p2[crossover_point:]))
-                    child2 = list(set(p2[:crossover_point] + p1[crossover_point:]))
+                    # Исправлено: сохраняем порядок элементов без set()
+                    child1 = p1[:crossover_point] + [x for x in p2[crossover_point:] if x not in p1[:crossover_point]]
+                    child2 = p2[:crossover_point] + [x for x in p1[crossover_point:] if x not in p2[:crossover_point]]
+                    
+                    # Добавляем недостающие элементы если ребенок слишком маленький
+                    available1 = [x for x in hc_columns if x not in child1]
+                    available2 = [x for x in hc_columns if x not in child2]
+                    
+                    while len(child1) < min_hc and available1:
+                        child1.append(available1.pop(0))
+                    while len(child2) < min_hc and available2:
+                        child2.append(available2.pop(0))
 
                     # Проверка размера
                     if len(child1) >= min_hc:
@@ -2498,9 +2744,21 @@ def main():
         print("Цель: максимальное перекрытие кластеров в PCA пространстве")
         print("=" * 80)
 
-        # Фильтр: только УВ с consensus >= CONSENSUS_THRESHOLD
-        candidate_hc = consensus_df[consensus_df['consensus_score'] >= CONSENSUS_THRESHOLD]['hydrocarbon'].tolist()
-        print(f"\nКандидаты для оптимизации (consensus >= {CONSENSUS_THRESHOLD}): {len(candidate_hc)} УВ")
+        # Оптимизация порога consensus threshold
+        threshold_result = optimize_consensus_threshold(
+            proportions_year_1, proportions_year_2, hc_columns, consensus_df,
+            min_hc=MIN_HC, max_hc=MAX_HC
+        )
+        
+        # Используем лучший порог или дефолтный диапазон
+        if threshold_result and threshold_result['best_score'] > -np.inf:
+            best_threshold = threshold_result['best_threshold']
+            candidate_hc = threshold_result['best_hc']
+            print(f"\n✅ Используется оптимизированный порог: {best_threshold:.2f}")
+        else:
+            # Дефолтный подход с диапазоном порогов
+            candidate_hc = consensus_df[consensus_df['consensus_score'] >= CONSENSUS_THRESHOLD_MIN]['hydrocarbon'].tolist()
+            print(f"\nКандидаты для оптимизации (consensus >= {CONSENSUS_THRESHOLD_MIN}): {len(candidate_hc)} УВ")
 
         start_time = time.time()
 
@@ -2530,6 +2788,17 @@ def main():
         print(f"   Variance ratio score: {final_metrics['variance_ratio_score']:.4f}")
         print(f"   Density similarity: {final_metrics['density_similarity']:.4f}")
         print(f"   Quality score: {final_metrics['quality_score']:.4f}")
+
+        # Кросс-валидация
+        cv_result = cross_validate_optimization(
+            proportions_year_1, proportions_year_2, hc_columns, consensus_df,
+            n_folds=CV_FOLDS, min_hc=MIN_HC, max_hc=MAX_HC
+        )
+        
+        # Анализ чувствительности
+        sensitivity_result = sensitivity_analysis(
+            proportions_year_1, proportions_year_2, optimized_hc, consensus_df
+        )
 
         # Сохраняем список оптимальных УВ
         optimal_hc_df = pd.DataFrame({
