@@ -196,7 +196,17 @@ with st.sidebar:
             'optimization_algorithm', 'n_iterations', 'population_size',
             'color_scheme', 'point_size', 'show_labels',
             'selected_years', 'selected_classes',
-            'threshold_value', 'enable_pca', 'enable_tsne'
+            'threshold_value', 'enable_pca', 'enable_tsne',
+            # Параметры оптимизации
+            'min_hc', 'max_hc', 'max_iterations',
+            'consensus_threshold_min', 'consensus_threshold_max', 'consensus_threshold_step',
+            # Параметры генетического алгоритма
+            'ga_pop_size', 'ga_generations', 'ga_mutation_rate', 'ga_crossover_prob',
+            'ga_early_stop_patience', 'ga_early_stop_tolerance',
+            # Параметры жадного алгоритма
+            'greedy_max_iterations', 'greedy_n_remove', 'greedy_hybrid_iterations',
+            # Кросс-валидация
+            'cv_enabled', 'cv_folds'
         ]:
             if key in st.session_state:
                 config_data[key] = st.session_state[key]
@@ -273,7 +283,17 @@ with st.sidebar:
             'optimization_algorithm', 'n_iterations', 'population_size',
             'color_scheme', 'point_size', 'show_labels',
             'selected_years', 'selected_classes',
-            'threshold_value', 'enable_pca', 'enable_tsne'
+            'threshold_value', 'enable_pca', 'enable_tsne',
+            # Параметры оптимизации
+            'min_hc', 'max_hc', 'max_iterations',
+            'consensus_threshold_min', 'consensus_threshold_max', 'consensus_threshold_step',
+            # Параметры генетического алгоритма
+            'ga_pop_size', 'ga_generations', 'ga_mutation_rate', 'ga_crossover_prob',
+            'ga_early_stop_patience', 'ga_early_stop_tolerance',
+            # Параметры жадного алгоритма
+            'greedy_max_iterations', 'greedy_n_remove', 'greedy_hybrid_iterations',
+            # Кросс-валидация
+            'cv_enabled', 'cv_folds'
         ]
         
         # Удаляем ключи из session_state
@@ -432,6 +452,211 @@ with tab_params:
                 step=0.1,
                 key='iqr_multiplier',
                 help="Значения за пределами Q1 - k*IQR и Q3 + k*IQR будут считаться выбросами"
+            )
+        
+        st.divider()
+        
+        # Параметры оптимизации
+        st.subheader("🔬 Оптимизация набора углеводородов")
+        
+        # Выбор алгоритма оптимизации
+        optimization_algorithm = st.selectbox(
+            label="Алгоритм оптимизации",
+            options=['hybrid', 'greedy', 'genetic'],
+            index=0,
+            key='optimization_algorithm',
+            help="Выберите алгоритм для оптимизации набора углеводородов"
+        )
+        
+        col_opt1, col_opt2 = st.columns(2)
+        with col_opt1:
+            min_hc = st.number_input(
+                label="Мин. количество УВ",
+                min_value=3,
+                max_value=50,
+                value=11,
+                step=1,
+                key='min_hc',
+                help="Минимальное количество углеводородов после оптимизации"
+            )
+            max_iterations = st.number_input(
+                label="Макс. итераций",
+                min_value=10,
+                max_value=200,
+                value=60,
+                step=5,
+                key='max_iterations',
+                help="Максимальное количество итераций оптимизации"
+            )
+        with col_opt2:
+            max_hc = st.number_input(
+                label="Макс. количество УВ",
+                min_value=5,
+                max_value=100,
+                value=35,
+                step=1,
+                key='max_hc',
+                help="Максимальное количество углеводородов после оптимизации"
+            )
+        
+        st.divider()
+        
+        st.subheader("📊 Порог консенсуса")
+        
+        col_cons1, col_cons2, col_cons3 = st.columns(3)
+        with col_cons1:
+            consensus_threshold_min = st.slider(
+                label="Мин. порог",
+                min_value=0.0,
+                max_value=0.5,
+                value=0.3,
+                step=0.05,
+                key='consensus_threshold_min',
+                help="Минимальный порог consensus score"
+            )
+        with col_cons2:
+            consensus_threshold_max = st.slider(
+                label="Макс. порог",
+                min_value=0.5,
+                max_value=1.0,
+                value=0.7,
+                step=0.05,
+                key='consensus_threshold_max',
+                help="Максимальный порог consensus score"
+            )
+        with col_cons3:
+            consensus_threshold_step = st.slider(
+                label="Шаг",
+                min_value=0.01,
+                max_value=0.2,
+                value=0.1,
+                step=0.01,
+                key='consensus_threshold_step',
+                help="Шаг перебора порога консенсуса"
+            )
+        
+        # Параметры генетического алгоритма
+        if optimization_algorithm in ['genetic', 'hybrid']:
+            st.divider()
+            st.subheader("🧬 Параметры генетического алгоритма")
+            
+            col_ga1, col_ga2 = st.columns(2)
+            with col_ga1:
+                ga_pop_size = st.number_input(
+                    label="Размер популяции",
+                    min_value=10,
+                    max_value=200,
+                    value=60,
+                    step=5,
+                    key='ga_pop_size',
+                    help="Размер популяции в генетическом алгоритме"
+                )
+                ga_mutation_rate = st.slider(
+                    label="Частота мутаций",
+                    min_value=0.01,
+                    max_value=0.5,
+                    value=0.15,
+                    step=0.01,
+                    key='ga_mutation_rate',
+                    help="Вероятность мутации"
+                )
+            with col_ga2:
+                ga_generations = st.number_input(
+                    label="Количество поколений",
+                    min_value=10,
+                    max_value=200,
+                    value=40,
+                    step=5,
+                    key='ga_generations',
+                    help="Максимальное количество поколений"
+                )
+                ga_crossover_prob = st.slider(
+                    label="Вероятность кроссовера",
+                    min_value=0.3,
+                    max_value=1.0,
+                    value=0.7,
+                    step=0.05,
+                    key='ga_crossover_prob',
+                    help="Вероятность кроссовера"
+                )
+            
+            col_ga3, col_ga4 = st.columns(2)
+            with col_ga3:
+                ga_early_stop_patience = st.number_input(
+                    label="Терпение ранней остановки",
+                    min_value=5,
+                    max_value=50,
+                    value=10,
+                    step=1,
+                    key='ga_early_stop_patience',
+                    help="Поколений без улучшения для ранней остановки"
+                )
+            with col_ga4:
+                ga_early_stop_tolerance = st.number_input(
+                    label="Допуск ранней остановки",
+                    min_value=0.0001,
+                    max_value=0.01,
+                    value=0.001,
+                    step=0.0001,
+                    format="%.4f",
+                    key='ga_early_stop_tolerance',
+                    help="Минимальное улучшение для считания прогрессом"
+                )
+        
+        # Параметры жадного алгоритма
+        if optimization_algorithm in ['greedy', 'hybrid']:
+            st.divider()
+            st.subheader("🎯 Параметры жадного алгоритма")
+            
+            greedy_max_iterations = st.number_input(
+                label="Макс. итераций жадного алгоритма",
+                min_value=5,
+                max_value=100,
+                value=20,
+                step=1,
+                key='greedy_max_iterations',
+                help="Максимум итераций жадного алгоритма"
+            )
+            
+            greedy_n_remove = st.multiselect(
+                label="Сколько УВ удалять за шаг",
+                options=[1, 2, 3, 4, 5],
+                default=[1, 2, 3],
+                key='greedy_n_remove',
+                help="Варианты количества УВ для удаления за один шаг"
+            )
+            
+            if optimization_algorithm == 'hybrid':
+                greedy_hybrid_iterations = st.number_input(
+                    label="Итераций жадного в гибридном режиме",
+                    min_value=5,
+                    max_value=50,
+                    value=15,
+                    step=1,
+                    key='greedy_hybrid_iterations',
+                    help="Количество итераций жадного алгоритма в гибридном режиме"
+                )
+        
+        # Кросс-валидация
+        st.divider()
+        st.subheader("✅ Кросс-валидация")
+        
+        cv_enabled = st.checkbox(
+            label="Включить кросс-валидацию",
+            value=True,
+            key='cv_enabled',
+            help="Использовать кросс-валидацию для оценки качества оптимизации"
+        )
+        
+        if cv_enabled:
+            cv_folds = st.number_input(
+                label="Количество фолдов",
+                min_value=2,
+                max_value=10,
+                value=5,
+                step=1,
+                key='cv_folds',
+                help="Количество фолдов для кросс-валидации"
             )
         
         st.divider()
