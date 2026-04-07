@@ -1,1 +1,10 @@
-(empty)
+```gitignore
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Test files
+.tests/TEST_REPORT.md
+```
