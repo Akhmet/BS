@@ -3159,7 +3159,6 @@ def run_analysis(df, params=None):
     
     if consensus_df is not None:
         # Временная установка глобальных параметров для совместимости
-        global CONSENSUS_THRESHOLD_MIN, CONSENSUS_THRESHOLD_MAX, CONSENSUS_THRESHOLD_STEP
         old_min, old_max, old_step = CONSENSUS_THRESHOLD_MIN, CONSENSUS_THRESHOLD_MAX, CONSENSUS_THRESHOLD_STEP
         CONSENSUS_THRESHOLD_MIN = p['consensus_threshold_min']
         CONSENSUS_THRESHOLD_MAX = p['consensus_threshold_max']

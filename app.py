@@ -11,6 +11,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# Импорт функций анализа из BS_qwen.py
+from BS_qwen import run_analysis, METHODS_CONFIG
+
 # =============================================================================
 # 2.1. Инициализация проекта - Конфигурация страницы
 # =============================================================================
@@ -793,13 +796,80 @@ with tab_params:
         
         st.divider()
         
+        # Параметры оптимизации - дополнительные настройки
+        st.subheader("🔬 Дополнительные параметры")
+        
+        bootstrap_iterations = st.number_input(
+            label="Итераций bootstrap",
+            min_value=10,
+            max_value=500,
+            value=100,
+            step=10,
+            key='bootstrap_iterations',
+            help="Количество итераций bootstrap для оценки стабильности"
+        )
+        
+        hc_outlier_method = st.selectbox(
+            label="Метод выбросов УВ",
+            options=['zscore', 'iqr', 'none'],
+            index=0,
+            key='hc_outlier_method',
+            help="Метод обнаружения выбросов в углеводородах"
+        )
+        
+        hc_outlier_threshold = st.slider(
+            label="Порог выбросов УВ",
+            min_value=1.0,
+            max_value=5.0,
+            value=3.0,
+            step=0.5,
+            key='hc_outlier_threshold',
+            help="Порог для обнаружения выбросов"
+        )
+        
+        st.divider()
+        
         # Кнопка запуска анализа
         st.subheader("🚀 Запуск анализа")
         
         if st.button("▶️ Запустить анализ", type="primary", use_container_width=True):
-            st.session_state['analysis_run'] = True
-            st.success("✅ Анализ запущен! Перейдите на вкладку 'Результаты'")
-            st.rerun()
+            with st.spinner("⏳ Выполняется анализ данных... Это может занять несколько минут."):
+                try:
+                    # Собираем параметры из session_state
+                    params = {
+                        'methods_config': st.session_state.get('methods_config', METHODS_CONFIG.copy()),
+                        'optimization_algorithm': st.session_state.get('optimization_algorithm', 'hybrid'),
+                        'min_hc': st.session_state.get('min_hc', 5),
+                        'max_hc': st.session_state.get('max_hc', 15),
+                        'max_iterations': st.session_state.get('max_iterations', 1000),
+                        'consensus_threshold_min': st.session_state.get('consensus_threshold_min', 0.5),
+                        'consensus_threshold_max': st.session_state.get('consensus_threshold_max', 1.0),
+                        'ga_pop_size': st.session_state.get('ga_pop_size', 50),
+                        'ga_generations': st.session_state.get('ga_generations', 100),
+                        'ga_mutation_rate': st.session_state.get('ga_mutation_rate', 0.1),
+                        'greedy_max_iterations': st.session_state.get('greedy_max_iterations', 1000),
+                        'bootstrap_iterations': st.session_state.get('bootstrap_iterations', 100),
+                        'hc_outlier_method': st.session_state.get('hc_outlier_method', 'zscore'),
+                        'hc_outlier_threshold': st.session_state.get('hc_outlier_threshold', 3.0),
+                    }
+                    
+                    # Получаем данные
+                    df = st.session_state['data']
+                    
+                    # Запускаем анализ
+                    results = run_analysis(df, params=params)
+                    
+                    # Сохраняем результаты в session_state
+                    st.session_state['analysis_results'] = results
+                    st.session_state['analysis_complete'] = True
+                    
+                    st.success("✅ Анализ успешно завершен! Перейдите на вкладку 'Результаты'")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Ошибка при выполнении анализа: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
         
     else:
         st.warning("👈 Загрузите файл данных, чтобы настроить параметры анализа")
