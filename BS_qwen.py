@@ -1176,10 +1176,10 @@ def cross_validate_optimization(proportions_year_1, proportions_year_2, hc_colum
         train_indices = np.concatenate([indices[:test_start], indices[test_end:]])
         
         # Получаем данные для фолда
-        train_prop_1 = proportions_year_1[train_indices]
-        train_prop_2 = proportions_year_2[train_indices]
-        test_prop_1 = proportions_year_1[test_indices]
-        test_prop_2 = proportions_year_2[test_indices]
+        train_prop_1 = proportions_year_1.iloc[train_indices]
+        train_prop_2 = proportions_year_2.iloc[train_indices]
+        test_prop_1 = proportions_year_1.iloc[test_indices]
+        test_prop_2 = proportions_year_2.iloc[test_indices]
         
         # Оптимизация на train данных
         best_hc = None
