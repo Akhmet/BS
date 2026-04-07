@@ -730,10 +730,15 @@ def pca_loadings_stability(clr_year_1, clr_year_2, hc_columns, n_components=PCA_
 
     loadings_corr, _ = spearmanr(loadings_1, loadings_2)
 
+    # Преобразование расстояния PCA в схожесть через экспоненциальное затухание
+    loadings_diff = np.abs(loadings_1 - loadings_2)
+    alpha = 1.0  # Параметр затухания
+    loadings_similarity = np.exp(-alpha * loadings_diff)
+
     loadings_df = pd.DataFrame({
         'hydrocarbon': hc_columns,
-        'loadings_diff': np.abs(loadings_1 - loadings_2),
-        'loadings_stability': 1 / (1 + np.abs(loadings_1 - loadings_2))
+        'loadings_diff': loadings_diff,
+        'loadings_stability': loadings_similarity
     })
 
     loadings_df = loadings_df.sort_values('loadings_stability', ascending=False)
