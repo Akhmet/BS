@@ -2598,9 +2598,6 @@ def main():
     if 'cohens_d_df' in all_results and METHODS_CONFIG.get('cohens_d', False):
         plot_cohens_d_distribution(all_results['cohens_d_df'], output_dir)
 
-    if 'bootstrap_df' in all_results and METHODS_CONFIG.get('bootstrap', False):
-        plot_bootstrap_ci(all_results['bootstrap_df'], output_dir)
-
     if 'importance_df' in all_results and METHODS_CONFIG.get('importance', False):
         plot_feature_importance(all_results['importance_df'], output_dir)
 
