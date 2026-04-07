@@ -7,6 +7,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # =============================================================================
 # 2.1. Инициализация проекта - Конфигурация страницы
@@ -400,26 +403,366 @@ with tab_params:
 
 with tab_results:
     st.subheader("Результаты анализа")
-    st.warning("⚠️ Запустите анализ, чтобы увидеть результаты")
     
-    # Место для результатов
-    placeholder_results = st.empty()
-    
-    with placeholder_results.container():
-        st.info("""
-        ### Вкладки результатов:
+    # Проверяем, есть ли загруженные данные
+    if 'data_valid' not in st.session_state or not st.session_state.get('data_valid', False):
+        st.warning("⚠️ Загрузите файл данных, чтобы увидеть результаты")
+        placeholder_results = st.empty()
+        with placeholder_results.container():
+            st.info("""
+            ### Вкладки результатов:
+            
+            - **Обзор данных**: Распределения, корреляционные матрицы
+            - **Многомерный анализ**: PCA, t-SNE проекции
+            - **Сравнение годов**: Графики изменений концентраций
+            - **Таблица результатов**: Итоговые расчетные коэффициенты
+            - **Отчет**: Текстовое резюме анализа
+            
+            Для запуска анализа:
+            1. Загрузите файл данных
+            2. Настройте параметры
+            3. Нажмите кнопку \"Запустить анализ\"
+            """)
+    else:
+        df = st.session_state['data']
         
-        - **Обзор данных**: Распределения, корреляционные матрицы
-        - **Многомерный анализ**: PCA, t-SNE проекции
-        - **Сравнение годов**: Графики изменений концентраций
-        - **Таблица результатов**: Итоговые расчетные коэффициенты
-        - **Отчет**: Текстовое резюме анализа
+        # =========================================================================
+        # 7.2. Организация вкладок результатов
+        # =========================================================================
+        result_tabs = st.tabs([
+            "📊 Обзор данных",
+            "🔬 Многомерный анализ",
+            "📈 Сравнение годов",
+            "📋 Таблица результатов",
+            "📝 Отчет"
+        ])
         
-        Для запуска анализа:
-        1. Загрузите файл данных
-        2. Настройте параметры
-        3. Нажмите кнопку \"Запустить анализ\"
-        """)
+        # -------------------------------------------------------------------------
+        # Вкладка 1: Обзор данных
+        # -------------------------------------------------------------------------
+        with result_tabs[0]:
+            st.subheader("Распределение данных по годам")
+            
+            years = st.session_state['years']
+            year_1 = years[0]
+            year_2 = years[1] if len(years) > 1 else None
+            
+            # Данные по годам
+            data_year_1 = df[df['year'] == year_1]
+            data_year_2 = df[df['year'] == year_2] if year_2 else None
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric(f"Проб за {year_1}", len(data_year_1))
+            with col2:
+                if year_2:
+                    st.metric(f"Проб за {year_2}", len(data_year_2))
+            
+            st.divider()
+            
+            st.subheader("Корреляционная матрица")
+            
+            # Получаем числовые колонки (HC)
+            hc_columns = st.session_state.get('hc_columns', [])
+            numeric_data = df[hc_columns].select_dtypes(include=[np.number])
+            
+            if len(numeric_data.columns) > 0:
+                corr_matrix = numeric_data.corr()
+                
+                # Plotly heatmap для корреляционной матрицы
+                fig_corr = px.imshow(
+                    corr_matrix,
+                    color_continuous_scale='RdBu_r',
+                    zmin=-1,
+                    zmax=1,
+                    aspect='auto',
+                    title='Корреляционная матрица углеводородов'
+                )
+                fig_corr.update_layout(height=600)
+                st.plotly_chart(fig_corr, use_container_width=True)
+            else:
+                st.info("Нет числовых данных для построения корреляционной матрицы")
+            
+            st.divider()
+            
+            st.subheader("Распределение значений")
+            
+            # Выбираем несколько случайных HC для демонстрации
+            if len(hc_columns) > 0:
+                sample_hc = hc_columns[:min(5, len(hc_columns))]
+                
+                for hc in sample_hc:
+                    fig_dist = px.histogram(
+                        df,
+                        x=hc,
+                        color='year',
+                        nbins=30,
+                        title=f'Распределение {hc}',
+                        opacity=0.7
+                    )
+                    st.plotly_chart(fig_dist, use_container_width=True)
+        
+        # -------------------------------------------------------------------------
+        # Вкладка 2: Многомерный анализ (PCA + t-SNE)
+        # -------------------------------------------------------------------------
+        with result_tabs[1]:
+            st.subheader("PCA анализ")
+            
+            from sklearn.decomposition import PCA
+            from sklearn.preprocessing import StandardScaler
+            from sklearn.manifold import TSNE
+            
+            # Подготовка данных для многомерного анализа
+            hc_columns = st.session_state.get('hc_columns', [])
+            if len(hc_columns) > 0:
+                X = df[hc_columns].fillna(0)
+                
+                # Стандартизация
+                scaler = StandardScaler()
+                X_scaled = scaler.fit_transform(X)
+                
+                # PCA
+                pca = PCA(n_components=min(3, len(hc_columns)))
+                pca_result = pca.fit_transform(X_scaled)
+                
+                # Создаем DataFrame с результатами PCA
+                pca_df = pd.DataFrame({
+                    'PC1': pca_result[:, 0],
+                    'PC2': pca_result[:, 1],
+                    'year': df['year'],
+                    'Class': df['Class']
+                })
+                
+                if len(years) > 1:
+                    pca_df['year'] = pca_df['year'].astype(str)
+                
+                # 2D PCA scatter plot
+                st.subheader("PCA: PC1 vs PC2")
+                
+                fig_pca_2d = px.scatter(
+                    pca_df,
+                    x='PC1',
+                    y='PC2',
+                    color='year' if len(years) > 1 else 'Class',
+                    title=f'PCA анализ (объяснено {pca.explained_variance_ratio_[0]+pca.explained_variance_ratio_[1]:.1%} дисперсии)',
+                    labels={'PC1': f'PC1 ({pca.explained_variance_ratio_[0]:.1%})', 
+                           'PC2': f'PC2 ({pca.explained_variance_ratio_[1]:.1%})'},
+                    hover_data=['Class']
+                )
+                fig_pca_2d.update_traces(marker=dict(size=10, line=dict(width=1, color='DarkSlateGrey')))
+                st.plotly_chart(fig_pca_2d, use_container_width=True)
+                
+                # 3D PCA если возможно
+                if pca.n_components_ >= 3:
+                    st.subheader("PCA: 3D визуализация")
+                    
+                    fig_pca_3d = px.scatter_3d(
+                        pca_df,
+                        x='PC1',
+                        y='PC2',
+                        z='PC3',
+                        color='year' if len(years) > 1 else 'Class',
+                        title=f'3D PCA (объяснено {sum(pca.explained_variance_ratio_):.1%} дисперсии)',
+                        labels={'PC1': f'PC1 ({pca.explained_variance_ratio_[0]:.1%})', 
+                               'PC2': f'PC2 ({pca.explained_variance_ratio_[1]:.1%})',
+                               'PC3': f'PC3 ({pca.explained_variance_ratio_[2]:.1%})'},
+                        hover_data=['Class']
+                    )
+                    fig_pca_3d.update_traces(marker=dict(size=5))
+                    st.plotly_chart(fig_pca_3d, use_container_width=True)
+                
+                # Explained variance
+                st.subheader("Объясненная дисперсия по компонентам")
+                
+                variance_df = pd.DataFrame({
+                    'Компонента': [f'PC{i+1}' for i in range(len(pca.explained_variance_ratio_))],
+                    'Объясненная дисперсия (%)': pca.explained_variance_ratio_ * 100
+                })
+                
+                fig_var = px.bar(
+                    variance_df,
+                    x='Компонента',
+                    y='Объясненная дисперсия (%)',
+                    title='Объясненная дисперсия по главным компонентам',
+                    text_auto='.1f'
+                )
+                st.plotly_chart(fig_var, use_container_width=True)
+                
+                st.divider()
+                
+                # =========================================================================
+                # 7.1 Переход на Plotly - t-SNE визуализация
+                # =========================================================================
+                st.subheader("t-SNE анализ")
+                st.info("t-SNE (t-distributed Stochastic Neighbor Embedding) — метод для визуализации многомерных данных в пространстве меньшей размерности.")
+                
+                with st.spinner("Выполняется t-SNE... Это может занять несколько секунд"):
+                    try:
+                        # t-SNE с параметрами по умолчанию
+                        tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, len(df)-1), n_iter=1000)
+                        tsne_result = tsne.fit_transform(X_scaled)
+                        
+                        tsne_df = pd.DataFrame({
+                            't-SNE 1': tsne_result[:, 0],
+                            't-SNE 2': tsne_result[:, 1],
+                            'year': df['year'].astype(str),
+                            'Class': df['Class']
+                        })
+                        
+                        fig_tsne = px.scatter(
+                            tsne_df,
+                            x='t-SNE 1',
+                            y='t-SNE 2',
+                            color='year' if len(years) > 1 else 'Class',
+                            title='t-SNE проекция данных',
+                            labels={'t-SNE 1': 't-SNE 1', 't-SNE 2': 't-SNE 2'},
+                            hover_data=['Class']
+                        )
+                        fig_tsne.update_traces(marker=dict(size=10, line=dict(width=1, color='DarkSlateGrey')))
+                        st.plotly_chart(fig_tsne, use_container_width=True)
+                        
+                        st.success("✅ t-SNE анализ завершен")
+                    except Exception as e:
+                        st.error(f"❌ Ошибка при выполнении t-SNE: {str(e)}")
+            else:
+                st.info("Нет данных для многомерного анализа")
+        
+        # -------------------------------------------------------------------------
+        # Вкладка 3: Сравнение годов
+        # -------------------------------------------------------------------------
+        with result_tabs[2]:
+            st.subheader("Сравнение концентраций по годам")
+            
+            if year_2:
+                hc_columns = st.session_state.get('hc_columns', [])
+                
+                if len(hc_columns) > 0:
+                    # Средние значения по годам
+                    mean_by_year = df.groupby('year')[hc_columns].mean()
+                    
+                    # График сравнения средних
+                    st.subheader("Средние концентрации по годам")
+                    
+                    # Выбираем топ-10 HC с наибольшими различиями
+                    diff_means = abs(mean_by_year.loc[year_1] - mean_by_year.loc[year_2]).sort_values(ascending=False)
+                    top_hc = diff_means.head(10).index.tolist()
+                    
+                    comparison_df = df[['year'] + top_hc].copy()
+                    comparison_df['year'] = comparison_df['year'].astype(str)
+                    
+                    fig_comparison = px.box(
+                        comparison_df,
+                        points="all",
+                        title='Сравнение распределений топ-10 углеводородов',
+                        labels={'variable': 'Углеводород', 'value': 'Концентрация'}
+                    )
+                    fig_comparison.update_layout(xaxis_title="Углеводород", yaxis_title="Концентрация")
+                    st.plotly_chart(fig_comparison, use_container_width=True)
+                    
+                    # Дельта между годами
+                    st.subheader("Разница средних значений (Year 2 - Year 1)")
+                    
+                    delta_df = pd.DataFrame({
+                        'Углеводород': top_hc,
+                        'Разница': [mean_by_year.loc[year_2][hc] - mean_by_year.loc[year_1][hc] for hc in top_hc]
+                    })
+                    delta_df['Цвет'] = delta_df['Разница'].apply(lambda x: 'positive' if x > 0 else 'negative')
+                    
+                    fig_delta = px.bar(
+                        delta_df,
+                        x='Углеводород',
+                        y='Разница',
+                        color='Цвет',
+                        color_discrete_map={'positive': 'green', 'negative': 'red'},
+                        title='Изменение средних концентраций',
+                        text_auto='.2f'
+                    )
+                    st.plotly_chart(fig_delta, use_container_width=True)
+                else:
+                    st.info("Нет данных для сравнения")
+            else:
+                st.warning("Для сравнения нужны данные минимум за 2 года")
+        
+        # -------------------------------------------------------------------------
+        # Вкладка 4: Таблица результатов
+        # -------------------------------------------------------------------------
+        with result_tabs[3]:
+            st.subheader("Итоговая таблица данных")
+            
+            # =========================================================================
+            # 7.3 Интерактивность таблиц - Отображение с сортировкой и фильтрацией
+            # =========================================================================
+            # Показываем полную таблицу с возможностью сортировки и фильтрации
+            st.dataframe(
+                df,
+                use_container_width=True,
+                height=500,
+                hide_index=True,
+                column_config={
+                    "year": st.column_config.NumberColumn("Год", format="%d"),
+                    "Class": st.column_config.TextColumn("Класс"),
+                }
+            )
+            
+            st.divider()
+            
+            # =========================================================================
+            # 7.3 Интерактивность таблиц - Подсветка аномальных значений
+            # =========================================================================
+            st.subheader("Статистика по углеводородам с подсветкой аномалий")
+            
+            hc_columns = st.session_state.get('hc_columns', [])
+            if len(hc_columns) > 0:
+                stats_df = df[hc_columns].describe()
+                
+                # Функция для подсветки выбросов
+                def highlight_outliers(val):
+                    """Подсвечивает значения выходящие за пределы 2 стандартных отклонений"""
+                    try:
+                        val_float = float(val)
+                        if abs(val_float) > 2:
+                            return 'background-color: #ffcccc'  # Светло-красный для аномалий
+                        elif abs(val_float) > 1.5:
+                            return 'background-color: #fff3cd'  # Светло-желтый для предупреждений
+                        return ''
+                    except (ValueError, TypeError):
+                        return ''
+                
+                # Отображение статистики с форматированием
+                styled_stats = stats_df.style.format(precision=2).map(highlight_outliers, subset=stats_df.columns)
+                st.dataframe(styled_stats, use_container_width=True)
+                
+                st.info("🔴 Красным подсвечены значения > 2σ, 🟡 желтым > 1.5σ от среднего")
+        
+        # -------------------------------------------------------------------------
+        # Вкладка 5: Отчет
+        # -------------------------------------------------------------------------
+        with result_tabs[4]:
+            st.subheader("Отчет по анализу данных")
+            
+            # Генерация текстового отчета
+            report_text = f"""
+            ## Общая информация
+            
+            - **Всего проб:** {len(df)}
+            - **Годы измерений:** {', '.join(map(str, years))}
+            - **Количество углеводородов:** {len(hc_columns)}
+            - **Классы образцов:** {', '.join(map(str, st.session_state.get('classes', [])))}
+            
+            ## Статистика по годам
+            """
+            
+            for year in years:
+                year_data = df[df['year'] == year]
+                report_text += f"\n### {year}\n"
+                report_text += f"- Количество проб: {len(year_data)}\n"
+            
+            report_text += "\n## Рекомендации\n\n"
+            report_text += "- Проверьте данные на наличие выбросов перед дальнейшим анализом\n"
+            report_text += "- Обратите внимание на углеводороды с наибольшей вариацией между годами\n"
+            report_text += "- Используйте PCA для выявления скрытых паттернов в данных\n"
+            
+            st.markdown(report_text)
 
 # =============================================================================
 # Секция для логов и статуса
@@ -437,5 +780,5 @@ with status_container:
 st.markdown("---")
 st.caption("""
 Приложение для анализа стабильности углеводородов | 
-Версия: 0.5.0 (Этап 5: Система сохранения и загрузки конфигураций)
+Версия: 0.7.0 (Этап 7: Визуализация результатов)
 """)
