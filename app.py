@@ -422,6 +422,106 @@ with tab_params:
         
         st.divider()
         
+        # =========================================================================
+        # ВЫБОР МЕТОДОВ АНАЛИЗА (согласно BS_qwen.py METHODS_CONFIG)
+        # =========================================================================
+        st.subheader("🔬 Выбор методов анализа")
+        
+        st.markdown("""
+        **Выберите методы для расчета стабильности углеводородов:**
+        - Можно выбрать несколько методов
+        - Консенсусный рейтинг будет рассчитан на основе выбранных методов
+        """)
+        
+        col_m1, col_m2 = st.columns(2)
+        
+        with col_m1:
+            method_clr = st.checkbox(
+                label="CLR трансформация ⭐⭐⭐⭐⭐",
+                value=False,
+                key='method_clr',
+                help="Centred Log-Ratio трансформация (обязательно для композиционных данных)"
+            )
+            
+            method_ratio = st.checkbox(
+                label="Пропорции (нормировка) ⭐⭐⭐",
+                value=False,
+                key='method_ratio',
+                help="Нормировка на сумму внутри каждой пробы"
+            )
+            
+            method_pattern = st.checkbox(
+                label="Корреляционные паттерны ⭐⭐",
+                value=False,
+                key='method_pattern',
+                help="Анализ корреляционных паттернов между годами"
+            )
+            
+            method_importance = st.checkbox(
+                label="Feature Importance (ML) ⭐",
+                value=False,
+                key='method_importance',
+                help="Важность признаков на основе ML (может переобучаться)"
+            )
+            
+            method_bootstrap = st.checkbox(
+                label="Bootstrap доверительные интервалы ⭐⭐⭐⭐",
+                value=True,
+                key='method_bootstrap',
+                help="Расчет доверительных интервалов методом bootstrap"
+            )
+        
+        with col_m2:
+            method_pca = st.checkbox(
+                label="PCA Loadings стабильность ⭐⭐",
+                value=False,
+                key='method_pca',
+                help="Стабильность loadings компонент PCA"
+            )
+            
+            method_cohens_d = st.checkbox(
+                label="Robust Cohen's D ⭐⭐⭐⭐",
+                value=False,
+                key='method_cohens_d',
+                help="Эффект размера (медиана + MAD)"
+            )
+            
+            method_wasserstein = st.checkbox(
+                label="Wasserstein distance ⭐⭐⭐⭐",
+                value=False,
+                key='method_wasserstein',
+                help="Расстояние между распределениями (форма распределения)"
+            )
+            
+            method_pairwise = st.checkbox(
+                label="Pairwise Log-Ratio ⭐⭐⭐⭐⭐",
+                value=True,
+                key='method_pairwise',
+                help="Попарные логарифмические отношения (лучший для композиционных данных)"
+            )
+        
+        # Сохраняем конфигурацию методов в session_state
+        st.session_state['methods_config'] = {
+            'clr': method_clr,
+            'ratio': method_ratio,
+            'pattern': method_pattern,
+            'importance': method_importance,
+            'bootstrap': method_bootstrap,
+            'pca': method_pca,
+            'cohens_d': method_cohens_d,
+            'wasserstein': method_wasserstein,
+            'pairwise': method_pairwise
+        }
+        
+        # Показываем количество выбранных методов
+        enabled_count = sum(st.session_state['methods_config'].values())
+        if enabled_count > 0:
+            st.success(f"✅ Выбрано методов: {enabled_count}")
+        else:
+            st.warning("⚠️ Не выбрано ни одного метода. Минимум 1 метод требуется для анализа.")
+        
+        st.divider()
+        
         # Параметры фильтрации выбросов
         st.subheader("🎯 Фильтрация выбросов")
         
