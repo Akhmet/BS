@@ -926,11 +926,284 @@ with tab_results:
             2. Настройте параметры
             3. Нажмите кнопку \"Запустить анализ\"
             """)
+    elif 'analysis_results' not in st.session_state or not st.session_state.get('analysis_complete', False):
+        st.warning("⚠️ Анализ еще не выполнен. Перейдите на вкладку 'Параметры анализа' и нажмите кнопку 'Запустить анализ'")
+        placeholder_results = st.empty()
+        with placeholder_results.container():
+            st.info("""
+            ### Результаты анализа будут отображены здесь после выполнения:
+            
+            - **Консенсусный рейтинг** углеводородов
+            - **Оптимизированный набор** стабильных углеводородов
+            - **Графики сравнения** методов анализа
+            - **История оптимизации** набора УВ
+            - **Детальные таблицы** с метриками стабильности
+            
+            Для запуска анализа:
+            1. Перейдите на вкладку 'Параметры анализа'
+            2. Настройте параметры (опционально)
+            3. Нажмите кнопку \"Запустить анализ\"
+            4. Дождитесь завершения и вернитесь на эту вкладку
+            """)
+    else:
+        # Получаем результаты анализа
+        results = st.session_state['analysis_results']
+        df = st.session_state['data']
+        
+        # Извлекаем данные из результатов
+        consensus_df = results.get('consensus_df')
+        optimized_hc = results.get('optimized_hc', [])
+        optimization_history = results.get('optimization_history', [])
+        all_results = results.get('results', {})
+        year_1 = results.get('year_1')
+        year_2 = results.get('year_2')
+        hc_columns = results.get('hc_columns', [])
+        
+        st.success(f"✅ Анализ завершен! Найдено {len(optimized_hc)} стабильных углеводородов.")
+        
+        # =========================================================================
+        # 7.2. Организация вкладок результатов анализа
+        # =========================================================================
+        result_tabs = st.tabs([
+            "📊 Консенсусный рейтинг",
+            "🔬 Оптимизированный набор УВ",
+            "📈 История оптимизации",
+            "📋 Детальные результаты",
+            "📝 Отчет"
+        ])
+        
+        # -------------------------------------------------------------------------
+        # Вкладка 1: Консенсусный рейтинг
+        # -------------------------------------------------------------------------
+        with result_tabs[0]:
+            st.subheader("Консенсусный рейтинг углеводородов")
+            
+            if consensus_df is not None and not consensus_df.empty:
+                st.write("Рейтинг углеводородов по совокупности всех включенных методов:")
+                
+                # Отображаем таблицу с консенсусным рейтингом
+                st.dataframe(
+                    consensus_df.sort_values('consensus_score', ascending=False),
+                    use_container_width=True,
+                    height=400
+                )
+                
+                # График консенсусного рейтинга
+                fig_consensus = px.bar(
+                    consensus_df.sort_values('consensus_score', ascending=True),
+                    x='consensus_score',
+                    y='hydrocarbon',
+                    orientation='h',
+                    title='Консенсусный рейтинг стабильности углеводородов',
+                    labels={'consensus_score': 'Консенсусный балл', 'hydrocarbon': 'Углеводород'},
+                    color='consensus_score',
+                    color_continuous_scale='RdYlGn'
+                )
+                fig_consensus.update_layout(height=max(300, len(consensus_df) * 30))
+                st.plotly_chart(fig_consensus, use_container_width=True)
+                
+                # Статистика
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    high_stability = len(consensus_df[consensus_df['consensus_score'] >= 0.7])
+                    st.metric("Высокая стабильность (≥0.7)", high_stability)
+                with col2:
+                    medium_stability = len(consensus_df[(consensus_df['consensus_score'] >= 0.4) & (consensus_df['consensus_score'] < 0.7)])
+                    st.metric("Средняя стабильность (0.4-0.7)", medium_stability)
+                with col3:
+                    low_stability = len(consensus_df[consensus_df['consensus_score'] < 0.4])
+                    st.metric("Низкая стабильность (<0.4)", low_stability)
+            else:
+                st.warning("Консенсусный рейтинг не был рассчитан. Возможно, выбрано недостаточно методов анализа.")
+        
+        # -------------------------------------------------------------------------
+        # Вкладка 2: Оптимизированный набор УВ
+        # -------------------------------------------------------------------------
+        with result_tabs[1]:
+            st.subheader("Оптимизированный набор стабильных углеводородов")
+            
+            if optimized_hc:
+                st.write(f"**Найдено {len(optimized_hc)} стабильных углеводородов:**")
+                
+                # Список оптимизированных УВ
+                hc_df = pd.DataFrame({'Углеводород': optimized_hc})
+                st.dataframe(hc_df, use_container_width=True, height=300)
+                
+                # Сравнение размеров наборов
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Исходное количество УВ", len(hc_columns))
+                with col2:
+                    st.metric("Оптимизированное количество УВ", len(optimized_hc))
+                
+                # Круговая диаграмма
+                if len(hc_columns) > 0:
+                    pie_df = pd.DataFrame({
+                        'Категория': ['Стабильные УВ', 'Нестабильные УВ'],
+                        'Количество': [len(optimized_hc), len(hc_columns) - len(optimized_hc)]
+                    })
+                    
+                    fig_pie = px.pie(
+                        pie_df,
+                        values='Количество',
+                        names='Категория',
+                        title='Доля стабильных углеводородов',
+                        color='Категория',
+                        color_discrete_map={'Стабильные УВ': 'green', 'Нестабильные УВ': 'red'}
+                    )
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                
+                # Если есть данные о стабильности в консенсусе, покажем распределение
+                if consensus_df is not None and not consensus_df.empty:
+                    stable_scores = consensus_df[consensus_df['hydrocarbon'].isin(optimized_hc)]['consensus_score']
+                    
+                    fig_dist = px.histogram(
+                        x=stable_scores,
+                        nbins=20,
+                        title='Распределение баллов стабильности в оптимизированном наборе',
+                        labels={'x': 'Консенсусный балл', 'count': 'Количество'},
+                        color_discrete_sequence=['#636EFA']
+                    )
+                    st.plotly_chart(fig_dist, use_container_width=True)
+            else:
+                st.warning("Оптимизация не была выполнена или не найдено стабильных углеводородов.")
+        
+        # -------------------------------------------------------------------------
+        # Вкладка 3: История оптимизации
+        # -------------------------------------------------------------------------
+        with result_tabs[2]:
+            st.subheader("История оптимизации набора УВ")
+            
+            if optimization_history and len(optimization_history) > 0:
+                st.write("Процесс оптимизации по итерациям:")
+                
+                # Преобразуем историю в DataFrame
+                history_df = pd.DataFrame(optimization_history)
+                
+                if 'score' in history_df.columns or 'best_score' in history_df.columns:
+                    score_col = 'best_score' if 'best_score' in history_df.columns else 'score'
+                    
+                    fig_history = px.line(
+                        history_df,
+                        x=range(len(history_df)),
+                        y=score_col,
+                        title='История оптимизации: изменение целевой функции',
+                        labels={'x': 'Итерация', 'y': 'Целевая функция'},
+                        markers=True
+                    )
+                    fig_history.update_traces(marker=dict(size=8))
+                    st.plotly_chart(fig_history, use_container_width=True)
+                    
+                    # Статистика оптимизации
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Начальное значение", f"{history_df[score_col].iloc[0]:.4f}" if len(history_df) > 0 else "N/A")
+                    with col2:
+                        st.metric("Финальное значение", f"{history_df[score_col].iloc[-1]:.4f}" if len(history_df) > 0 else "N/A")
+                    with col3:
+                        if len(history_df) > 1:
+                            improvement = history_df[score_col].iloc[-1] - history_df[score_col].iloc[0]
+                            st.metric("Улучшение", f"{improvement:.4f}")
+                        else:
+                            st.metric("Улучшение", "N/A")
+                else:
+                    st.dataframe(history_df, use_container_width=True, height=400)
+            else:
+                st.info("История оптимизации отсутствует. Возможно, использовался исходный набор УВ без оптимизации.")
+        
+        # -------------------------------------------------------------------------
+        # Вкладка 4: Детальные результаты
+        # -------------------------------------------------------------------------
+        with result_tabs[3]:
+            st.subheader("Детальные результаты по методам")
+            
+            if all_results:
+                # Выбор метода для просмотра
+                available_methods = list(all_results.keys())
+                selected_method = st.selectbox(
+                    "Выберите метод анализа:",
+                    options=available_methods,
+                    format_func=lambda x: METHODS_CONFIG.get(x, {}).get('name', x) if isinstance(METHODS_CONFIG, dict) else x
+                )
+                
+                if selected_method in all_results:
+                    method_result = all_results[selected_method]
+                    
+                    if isinstance(method_result, pd.DataFrame):
+                        st.write(f"**Результаты метода '{selected_method}':**")
+                        st.dataframe(method_result, use_container_width=True, height=500)
+                        
+                        # Попытка построить график если есть числовые колонки
+                        numeric_cols = method_result.select_dtypes(include=[np.number]).columns
+                        if len(numeric_cols) > 0 and len(method_result) > 0:
+                            # График распределения scores если есть колонка score
+                            score_cols = [col for col in numeric_cols if 'score' in col.lower()]
+                            if score_cols:
+                                fig_hist = px.histogram(
+                                    method_result,
+                                    x=score_cols[0],
+                                    nbins=30,
+                                    title=f'Распределение {score_cols[0]}',
+                                    labels={'x': score_cols[0], 'count': 'Количество'}
+                                )
+                                st.plotly_chart(fig_hist, use_container_width=True)
+                    else:
+                        st.write(f"**Результат типа {type(method_result)}:**")
+                        st.write(method_result)
+            else:
+                st.info("Детальные результаты отсутствуют.")
+        
+        # -------------------------------------------------------------------------
+        # Вкладка 5: Отчет
+        # -------------------------------------------------------------------------
+        with result_tabs[4]:
+            st.subheader("Отчет по анализу стабильности")
+            
+            report_text = f"""
+            ## Общая информация
+            
+            - **Всего проб:** {len(df)}
+            - **Годы измерений:** {year_1} - {year_2 if year_2 else 'N/A'}
+            - **Количество углеводородов:** {len(hc_columns)}
+            - **Оптимизированный набор:** {len(optimized_hc)} УВ
+            
+            ## Результаты оптимизации
+            
+            """
+            
+            if optimized_hc:
+                report_text += f"- **Найдено стабильных углеводородов:** {len(optimized_hc)} из {len(hc_columns)}\n"
+                report_text += f"- **Доля стабильных УВ:** {len(optimized_hc)/len(hc_columns)*100:.1f}%\n\n"
+                
+                if consensus_df is not None and not consensus_df.empty:
+                    avg_score = consensus_df['consensus_score'].mean()
+                    max_score = consensus_df['consensus_score'].max()
+                    min_score = consensus_df['consensus_score'].min()
+                    
+                    report_text += "## Статистика консенсусного рейтинга\n\n"
+                    report_text += f"- **Средний балл:** {avg_score:.3f}\n"
+                    report_text += f"- **Максимальный балл:** {max_score:.3f}\n"
+                    report_text += f"- **Минимальный балл:** {min_score:.3f}\n\n"
+                    
+                    report_text += "### Топ-5 наиболее стабильных углеводородов:\n\n"
+                    top5 = consensus_df.nlargest(5, 'consensus_score')
+                    for idx, row in top5.iterrows():
+                        report_text += f"{idx+1}. **{row['hydrocarbon']}**: {row['consensus_score']:.3f}\n"
+            else:
+                report_text += "- Оптимизация не выполнялась или не дала результатов\n\n"
+            
+            report_text += "\n## Рекомендации\n\n"
+            report_text += "- Используйте оптимизированный набор УВ для дальнейшего анализа\n"
+            report_text += "- Обратите внимание на УВ с высоким консенсусным баллом\n"
+            report_text += "- Проверьте геохимическую интерпретацию выбранных маркеров\n"
+            
+            st.markdown(report_text)
+
     else:
         df = st.session_state['data']
         
         # =========================================================================
-        # 7.2. Организация вкладок результатов
+        # 7.2. Организация вкладок результатов (для данных без анализа)
         # =========================================================================
         result_tabs = st.tabs([
             "📊 Обзор данных",
