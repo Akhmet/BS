@@ -1,1 +1,29 @@
-Nothing should be ignored based on the provided file changes. The modification of 'BS_qwen.py' is a source code file that should be tracked in version control. No build artifacts, dependencies, or temporary files are present in the changes.
+```
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+.env.*
+
+# Dependencies
+venv/
+.venv/
+.env/
+
+# Editors
+.vscode/
+.idea/
+
+# Build artifacts
+dist/
+build/
+target/
+```
