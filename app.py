@@ -1083,16 +1083,45 @@ with tab_results:
                 if 'quality_score' in history_df.columns:
                     score_col = 'quality_score'
                     
-                    fig_history = px.line(
+                    # График 1: Целевая функция
+                    fig_quality = px.line(
                         history_df,
                         x='iteration',
                         y=score_col,
-                        title='История оптимизации: изменение целевой функции',
+                        title='История оптимизации: изменение целевой функции (Quality Score)',
                         labels={'iteration': 'Итерация', 'quality_score': 'Целевая функция'},
                         markers=True
                     )
-                    fig_history.update_traces(marker=dict(size=8))
-                    st.plotly_chart(fig_history, use_container_width=True)
+                    fig_quality.update_traces(marker=dict(size=8), line=dict(color='blue', width=2))
+                    st.plotly_chart(fig_quality, use_container_width=True)
+                    
+                    # График 2: Количество углеводородов
+                    fig_n_hc = px.line(
+                        history_df,
+                        x='iteration',
+                        y='n_hydrocarbons',
+                        title='Изменение количества углеводородов в наборе',
+                        labels={'iteration': 'Итерация', 'n_hydrocarbons': 'Количество УВ'},
+                        markers=True
+                    )
+                    fig_n_hc.update_traces(marker=dict(size=8), line=dict(color='green', width=2))
+                    st.plotly_chart(fig_n_hc, use_container_width=True)
+                    
+                    # График 3: Параметры оптимизации (на одном графике)
+                    param_cols = ['centroid_distance', 'variance_ratio_score', 'density_similarity']
+                    available_params = [col for col in param_cols if col in history_df.columns]
+                    
+                    if available_params:
+                        fig_params = px.line(
+                            history_df,
+                            x='iteration',
+                            y=available_params,
+                            title='Изменение параметров оптимизации по итерациям',
+                            labels={'iteration': 'Итерация', 'value': 'Значение'},
+                            markers=True
+                        )
+                        fig_params.update_traces(marker=dict(size=6))
+                        st.plotly_chart(fig_params, use_container_width=True)
                     
                     # Статистика оптимизации
                     col1, col2, col3 = st.columns(3)
@@ -1106,6 +1135,10 @@ with tab_results:
                             st.metric("Улучшение", f"{improvement:.4f}")
                         else:
                             st.metric("Улучшение", "N/A")
+                    
+                    # Таблица с полной историей
+                    st.write("### Полная таблица истории оптимизации")
+                    st.dataframe(history_df, use_container_width=True, height=400)
                 else:
                     st.dataframe(history_df, use_container_width=True, height=400)
             else:
@@ -1133,7 +1166,7 @@ with tab_results:
                         st.write(f"**Результаты метода '{selected_method}':**")
                         st.dataframe(method_result, use_container_width=True, height=500)
                         
-                        # Попытка построить график если есть числовые колонки
+                        # Попытка построить графики если есть числовые колонки
                         numeric_cols = method_result.select_dtypes(include=[np.number]).columns
                         if len(numeric_cols) > 0 and len(method_result) > 0:
                             # График распределения scores если есть колонка score
@@ -1147,6 +1180,33 @@ with tab_results:
                                     labels={'x': score_cols[0], 'count': 'Количество'}
                                 )
                                 st.plotly_chart(fig_hist, use_container_width=True)
+                            
+                            # График scatter для первых двух числовых колонок
+                            if len(numeric_cols) >= 2:
+                                fig_scatter = px.scatter(
+                                    method_result,
+                                    x=numeric_cols[0],
+                                    y=numeric_cols[1],
+                                    title=f'Зависимость {numeric_cols[1]} от {numeric_cols[0]}',
+                                    labels={numeric_cols[0]: numeric_cols[0], numeric_cols[1]: numeric_cols[1]},
+                                    hover_data=['hydrocarbon'] if 'hydrocarbon' in method_result.columns else None
+                                )
+                                st.plotly_chart(fig_scatter, use_container_width=True)
+                            
+                            # Box plot для распределения значений по углеводородам
+                            if 'hydrocarbon' in method_result.columns and len(numeric_cols) >= 1:
+                                # Мелтим датафрейм для box plot
+                                melt_cols = ['hydrocarbon'] + list(numeric_cols[:3])  # Берем первые 3 числовые колонки
+                                melt_df = method_result[melt_cols].melt(id_vars='hydrocarbon', var_name='Parameter', value_name='Value')
+                                fig_box = px.box(
+                                    melt_df,
+                                    x='Parameter',
+                                    y='Value',
+                                    color='Parameter',
+                                    title='Распределение параметров по углеводородам',
+                                    points='all'
+                                )
+                                st.plotly_chart(fig_box, use_container_width=True)
                     else:
                         st.write(f"**Результат типа {type(method_result)}:**")
                         st.write(method_result)
