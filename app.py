@@ -1080,15 +1080,15 @@ with tab_results:
                 # Преобразуем историю в DataFrame
                 history_df = pd.DataFrame(optimization_history)
                 
-                if 'score' in history_df.columns or 'best_score' in history_df.columns:
-                    score_col = 'best_score' if 'best_score' in history_df.columns else 'score'
+                if 'quality_score' in history_df.columns:
+                    score_col = 'quality_score'
                     
                     fig_history = px.line(
                         history_df,
-                        x=range(len(history_df)),
+                        x='iteration',
                         y=score_col,
                         title='История оптимизации: изменение целевой функции',
-                        labels={'x': 'Итерация', 'y': 'Целевая функция'},
+                        labels={'iteration': 'Итерация', 'quality_score': 'Целевая функция'},
                         markers=True
                     )
                     fig_history.update_traces(marker=dict(size=8))
