@@ -1199,86 +1199,89 @@ with tab_results:
             
             st.markdown(report_text)
 
-    else:
-        df = st.session_state['data']
+# =============================================================================
+# Обработка случая: данные загружены, но анализ еще не выполнен
+# =============================================================================
+if 'data_valid' in st.session_state and st.session_state.get('data_valid', False) and \
+   ('analysis_results' not in st.session_state or not st.session_state.get('analysis_complete', False)):
+    df = st.session_state['data']
+    
+    # =========================================================================
+    # 7.2. Организация вкладок результатов (для данных без анализа)
+    # =========================================================================
+    result_tabs = st.tabs([
+        "📊 Обзор данных",
+        "🔬 Многомерный анализ",
+        "📈 Сравнение годов",
+        "📋 Таблица результатов",
+        "📝 Отчет"
+    ])
+    
+    # -------------------------------------------------------------------------
+    # Вкладка 1: Обзор данных
+    # -------------------------------------------------------------------------
+    with result_tabs[0]:
+        st.subheader("Распределение данных по годам")
         
-        # =========================================================================
-        # 7.2. Организация вкладок результатов (для данных без анализа)
-        # =========================================================================
-        result_tabs = st.tabs([
-            "📊 Обзор данных",
-            "🔬 Многомерный анализ",
-            "📈 Сравнение годов",
-            "📋 Таблица результатов",
-            "📝 Отчет"
-        ])
+        years = st.session_state['years']
+        year_1 = years[0]
+        year_2 = years[1] if len(years) > 1 else None
         
-        # -------------------------------------------------------------------------
-        # Вкладка 1: Обзор данных
-        # -------------------------------------------------------------------------
-        with result_tabs[0]:
-            st.subheader("Распределение данных по годам")
+        # Данные по годам
+        data_year_1 = df[df['year'] == year_1]
+        data_year_2 = df[df['year'] == year_2] if year_2 else None
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric(f"Проб за {year_1}", len(data_year_1))
+        with col2:
+            if year_2:
+                st.metric(f"Проб за {year_2}", len(data_year_2))
+        
+        st.divider()
+        
+        st.subheader("Корреляционная матрица")
+        
+        # Получаем числовые колонки (HC)
+        hc_columns = st.session_state.get('hc_columns', [])
+        numeric_data = df[hc_columns].select_dtypes(include=[np.number])
+        
+        if len(numeric_data.columns) > 0:
+            corr_matrix = numeric_data.corr()
             
-            years = st.session_state['years']
-            year_1 = years[0]
-            year_2 = years[1] if len(years) > 1 else None
+            # Plotly heatmap для корреляционной матрицы
+            fig_corr = px.imshow(
+                corr_matrix,
+                color_continuous_scale='RdBu_r',
+                zmin=-1,
+                zmax=1,
+                aspect='auto',
+                title='Корреляционная матрица углеводородов'
+            )
+            fig_corr.update_layout(height=600)
+            st.plotly_chart(fig_corr, use_container_width=True)
+        else:
+            st.info("Нет числовых данных для построения корреляционной матрицы")
+        
+        st.divider()
+        
+        st.subheader("Распределение значений")
+        
+        # Выбираем несколько случайных HC для демонстрации
+        if len(hc_columns) > 0:
+            sample_hc = hc_columns[:min(5, len(hc_columns))]
             
-            # Данные по годам
-            data_year_1 = df[df['year'] == year_1]
-            data_year_2 = df[df['year'] == year_2] if year_2 else None
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric(f"Проб за {year_1}", len(data_year_1))
-            with col2:
-                if year_2:
-                    st.metric(f"Проб за {year_2}", len(data_year_2))
-            
-            st.divider()
-            
-            st.subheader("Корреляционная матрица")
-            
-            # Получаем числовые колонки (HC)
-            hc_columns = st.session_state.get('hc_columns', [])
-            numeric_data = df[hc_columns].select_dtypes(include=[np.number])
-            
-            if len(numeric_data.columns) > 0:
-                corr_matrix = numeric_data.corr()
-                
-                # Plotly heatmap для корреляционной матрицы
-                fig_corr = px.imshow(
-                    corr_matrix,
-                    color_continuous_scale='RdBu_r',
-                    zmin=-1,
-                    zmax=1,
-                    aspect='auto',
-                    title='Корреляционная матрица углеводородов'
+            for hc in sample_hc:
+                fig_dist = px.histogram(
+                df,
+                x=hc,
+                color='year',
+                nbins=30,
+                title=f'Распределение {hc}',
+                opacity=0.7
                 )
-                fig_corr.update_layout(height=600)
-                st.plotly_chart(fig_corr, use_container_width=True)
-            else:
-                st.info("Нет числовых данных для построения корреляционной матрицы")
-            
-            st.divider()
-            
-            st.subheader("Распределение значений")
-            
-            # Выбираем несколько случайных HC для демонстрации
-            if len(hc_columns) > 0:
-                sample_hc = hc_columns[:min(5, len(hc_columns))]
-                
-                for hc in sample_hc:
-                    fig_dist = px.histogram(
-                        df,
-                        x=hc,
-                        color='year',
-                        nbins=30,
-                        title=f'Распределение {hc}',
-                        opacity=0.7
-                    )
-                    st.plotly_chart(fig_dist, use_container_width=True)
-        
-        # -------------------------------------------------------------------------
+                st.plotly_chart(fig_dist, use_container_width=True)
+
         # Вкладка 2: Многомерный анализ (PCA + t-SNE)
         # -------------------------------------------------------------------------
         with result_tabs[1]:
