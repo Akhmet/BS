@@ -28,6 +28,45 @@ st.set_page_config(
 # Обязательные колонки в данных (согласно BS_qwen.py)
 # =============================================================================
 REQUIRED_COLUMNS = ['number probe', 'Class', 'year']
+VALID_OPTIMIZATION_ALGORITHMS = {'hybrid', 'greedy', 'genetic'}
+
+
+def normalize_optimization_algorithm(value):
+    """
+    Нормализует значение алгоритма оптимизации из старых/альтернативных конфигов.
+    """
+    if value is None:
+        return 'hybrid'
+
+    normalized = str(value).strip().lower()
+    aliases = {
+        'ga': 'genetic',
+        'genetic_algorithm': 'genetic',
+        'genetic algo': 'genetic',
+        'genetic-algorithm': 'genetic',
+        'hybrid_algorithm': 'hybrid',
+    }
+    normalized = aliases.get(normalized, normalized)
+
+    if normalized not in VALID_OPTIMIZATION_ALGORITHMS:
+        return 'hybrid'
+
+    return normalized
+
+
+def sanitize_loaded_config(config_data):
+    """
+    Приводит загруженную конфигурацию к формату текущей версии приложения.
+    """
+    if not isinstance(config_data, dict):
+        return {}
+
+    sanitized = dict(config_data)
+    sanitized['optimization_algorithm'] = normalize_optimization_algorithm(
+        sanitized.get('optimization_algorithm', 'hybrid')
+    )
+
+    return sanitized
 
 # =============================================================================
 # 3.1. Кэшируемая функция загрузки данных
@@ -258,6 +297,7 @@ with st.sidebar:
             try:
                 with open(config_file, 'r', encoding='utf-8') as f:
                     config_data = json.load(f)
+                config_data = sanitize_loaded_config(config_data)
                 
                 # Обновляем session_state значениями из конфига
                 for key, value in config_data.items():
@@ -838,7 +878,9 @@ with tab_params:
                     # Собираем параметры из session_state
                     params = {
                         'methods_config': st.session_state.get('methods_config', METHODS_CONFIG.copy()),
-                        'optimization_algorithm': st.session_state.get('optimization_algorithm', 'hybrid'),
+                        'optimization_algorithm': normalize_optimization_algorithm(
+                            st.session_state.get('optimization_algorithm', 'hybrid')
+                        ),
                         'min_hc': st.session_state.get('min_hc', 5),
                         'max_hc': st.session_state.get('max_hc', 15),
                         'max_iterations': st.session_state.get('max_iterations', 1000),
