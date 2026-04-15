@@ -138,7 +138,7 @@ class TestColumnValidation:
         
         assert is_valid is True
         assert len(missing) == 0
-    
+
     def test_validate_columns_incomplete(self, incomplete_dataframe):
         """Проверка DataFrame с отсутствующими колонками"""
         from app import validate_columns
@@ -169,6 +169,35 @@ class TestColumnValidation:
         
         assert is_valid is True
         assert len(missing) == 0
+
+
+class TestConfigNormalization:
+    """Тесты нормализации конфигурации для обратной совместимости."""
+
+    def test_normalize_optimization_algorithm_aliases(self):
+        """Старое значение GA должно корректно маппиться в genetic."""
+        from app import normalize_optimization_algorithm
+
+        assert normalize_optimization_algorithm('GA') == 'genetic'
+        assert normalize_optimization_algorithm('genetic_algorithm') == 'genetic'
+        assert normalize_optimization_algorithm('hybrid') == 'hybrid'
+
+    def test_normalize_optimization_algorithm_invalid_fallback(self):
+        """Некорректное значение должно безопасно возвращать hybrid."""
+        from app import normalize_optimization_algorithm
+
+        assert normalize_optimization_algorithm('unknown-algo') == 'hybrid'
+        assert normalize_optimization_algorithm(None) == 'hybrid'
+
+    def test_sanitize_loaded_config_updates_algorithm(self):
+        """sanitize_loaded_config должен чинить устаревший ключ optimization_algorithm."""
+        from app import sanitize_loaded_config
+
+        config = {'optimization_algorithm': 'GA', 'min_hc': 7}
+        sanitized = sanitize_loaded_config(config)
+
+        assert sanitized['optimization_algorithm'] == 'genetic'
+        assert sanitized['min_hc'] == 7
 
 
 # =============================================================================
